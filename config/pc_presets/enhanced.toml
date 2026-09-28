@@ -1,0 +1,67 @@
+# Enhanced (recommended PC defaults)
+# Native desktop output, automatic internal scale (measured on the graphics
+# card: 2x = 2560 x 1440 from the console's 1280 x 720 where it holds the
+# recommended frame rate) with automatic FSR 1 upscaling, the display's refresh
+# rate with tear-free presentation, reduced menu frame rate, keyboard and native
+# mouse look. The title's world keeps its fixed 30 Hz tick at every frame rate.
+pc_config_version = 1
+output_resolution = "native"
+window_width = 0
+window_height = 0
+fullscreen = true
+window_mode = "borderless"
+monitor = 0
+
+resolution_scale = 0
+# Title data-pass annotations that internal scaling requires (not settings).
+draw_resolution_scale_threshold = 640
+draw_resolution_scale_native_grid_rules = "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26"
+swap_post_effect = "smaa"
+anisotropic_override = 5
+
+[general]
+language = "auto"
+
+[graphics]
+motion_blur = false
+motion_blur_off_shader_pack = ""
+hd_textures = false
+temporal_aa = "off"
+
+[present]
+effect = "auto"
+letterbox = true
+allow_overscan_cutoff = false
+safe_area_x = 100
+safe_area_y = 100
+
+[display]
+# VSync never tears; G-SYNC/FreeSync displays still follow the frame rate.
+present_mode = "vsync"
+max_frame_latency = 1
+frame_limit = 0
+frame_rate = "refresh"
+menu_frame_rate = "reduced"
+widescreen = false
+
+[camera]
+field_of_view = 86.0
+
+[audio]
+master_volume = 1.0
+
+[input]
+keyboard_mouse = true
+keyboard_mouse_user_index = 0
+mouse_sensitivity = 1.0
+mouse_acceleration = 0.0
+mouse_smoothing = 0.0
+mouse_invert_y = false
+mouse_look = "native"
+overlay_key = "F1"
+controller_sensitivity = "medium"
+controller_invert_y = false
+vibration_scale = 1.0
+
+[diagnostics]
+camera_state = false

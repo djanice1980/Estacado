@@ -1,0 +1,27 @@
+# First-pass XenonRecomp configuration.
+# Paths are relative to this file. The XEX is a local, Git-ignored input.
+[main]
+file_path = "../Darkness, The (USA, Europe) (En,Fr,De,Es,It)/default.xex"
+out_directory_path = "../generated/ppc"
+switch_table_file_path = "darkness_switch_tables.toml"
+
+# Do not enable recompilation optimizations before a successful generated-code build.
+skip_lr = false
+skip_msr = false
+ctr_as_local = false
+xer_as_local = false
+reserved_as_local = false
+cr_as_local = false
+non_argument_as_local = false
+non_volatile_as_local = false
+
+# Verified against unique code-section signature matches in the local XEX.
+# Canonical evidence and the machine-readable map: darkness_register_helpers.toml.
+restgprlr_14_address = 0x82899A40
+savegprlr_14_address = 0x828999F0
+restfpr_14_address = 0x8289A1DC
+savefpr_14_address = 0x8289A190
+restvmx_14_address = 0x829B8F08
+savevmx_14_address = 0x829B8C70
+restvmx_64_address = 0x829B8F9C
+savevmx_64_address = 0x829B8D04

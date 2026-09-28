@@ -1,0 +1,13 @@
+# Verified helper-address map for The Darkness default.xex.
+# Evidence: logs/register_helpers_disassembly.log and docs/REGISTER_HELPERS.md.
+# This file intentionally contains only mappings matched uniquely in the local XEX.
+
+[verified]
+restgprlr_14_address = 0x82899A40
+savegprlr_14_address = 0x828999F0
+restfpr_14_address = 0x8289A1DC
+savefpr_14_address = 0x8289A190
+restvmx_14_address = 0x829B8F08
+savevmx_14_address = 0x829B8C70
+restvmx_64_address = 0x829B8F9C
+savevmx_64_address = 0x829B8D04

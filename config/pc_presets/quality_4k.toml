@@ -1,0 +1,64 @@
+# PC Enhanced 4K validation preset
+# 3840x2160 windowed host-output-path validation with the verified 1280x720
+# guest render. Borderless mode is intentionally not used: SDL borderless
+# selects the 2560x1440 desktop mode and would not create a 4K surface. On the
+# current display this oversized window is neither physical 4K, DSR/VSR nor
+# internal supersampling. Internal scaling remains disabled because scale 2
+# already causes measured title composition corruption.
+pc_config_version = 1
+output_resolution = "4k"
+window_width = 0
+window_height = 0
+fullscreen = false
+window_mode = "windowed"
+monitor = 0
+
+resolution_scale = 1
+swap_post_effect = "fxaa_extreme"
+anisotropic_override = 5
+
+[general]
+language = "english"
+
+[graphics]
+motion_blur = false
+motion_blur_off_shader_pack = ""
+hd_textures = false
+temporal_aa = "off"
+
+[present]
+effect = "bilinear"
+letterbox = true
+allow_overscan_cutoff = false
+safe_area_x = 100
+safe_area_y = 100
+
+[display]
+present_mode = "vrr"
+max_frame_latency = 1
+frame_limit = 0
+frame_rate = "original"
+menu_frame_rate = "reduced"
+widescreen = false
+
+[camera]
+field_of_view = 86.0
+
+[audio]
+master_volume = 1.0
+
+[input]
+keyboard_mouse = true
+keyboard_mouse_user_index = 0
+mouse_sensitivity = 1.0
+mouse_acceleration = 0.0
+mouse_smoothing = 0.0
+mouse_invert_y = false
+mouse_look = "native"
+overlay_key = "F1"
+controller_sensitivity = "medium"
+controller_invert_y = false
+vibration_scale = 1.0
+
+[diagnostics]
+camera_state = false

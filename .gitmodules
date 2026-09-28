@@ -1,0 +1,6 @@
+[submodule "external/ReXGlue"]
+	path = external/ReXGlue
+	url = https://github.com/invinceble55-wq/Estacado-ReXGlue.git
+[submodule "external/XenonRecomp"]
+	path = external/XenonRecomp
+	url = https://github.com/invinceble55-wq/Estacado-XenonRecomp.git

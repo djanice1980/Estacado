@@ -1,0 +1,299 @@
+# Working recompiler configuration for one verified switch/function-boundary correction.
+# The original XenonAnalyse output remains config/darkness_switch_tables.toml.
+[main]
+file_path = "../Darkness, The (USA, Europe) (En,Fr,De,Es,It)/default.xex"
+out_directory_path = "../generated/ppc"
+switch_table_file_path = "darkness_switch_tables.toml"
+
+skip_lr = false
+skip_msr = false
+ctr_as_local = false
+xer_as_local = false
+reserved_as_local = false
+cr_as_local = false
+non_argument_as_local = false
+non_volatile_as_local = false
+
+# Runtime-verified correction overlay.  The preserved XenonAnalyse output is
+# kept in darkness_switch_tables.toml; this exact table was absent from it.
+# `r10` is range-checked against 28 at 0x8222B4E0 before this dispatch, so the
+# 29 literal entries from 0x8222B5E8 through 0x8222B658 are complete.
+switches = [
+    { base = 0x8222B5D0, r = 10, labels = [
+        0x8222B65C, 0x8222B7C0, 0x8222B860, 0x8222B8E4, 0x8222B954,
+        0x8222B9D8, 0x8222BA5C, 0x8222BADC, 0x8222BB5C, 0x8222BBE0,
+        0x8222BC48, 0x8222BC74, 0x8222BC74, 0x8222BD7C, 0x8222BDEC,
+        0x8222BE48, 0x8222BED0, 0x8222BFF8, 0x8222C330, 0x8222C540,
+        0x8222C5A8, 0x8222C734, 0x8222C7C0, 0x8222C874, 0x8222C898,
+        0x8222C990, 0x8222CA38, 0x8222CA40, 0x8222CBA4,
+    ] },
+    # Runtime-verified six-way tail dispatcher. The literal words at
+    # 0x8233CD9C..0x8233CDB0 are data, not function entries. Both static
+    # callers constrain r5 to 0..5 (one passes constant zero; the other checks
+    # r5 <= 5) before the bctr at 0x8233CD98.
+    { base = 0x8233CD80, r = 5, labels = [
+        0x8233CDB4, 0x8233CDD0, 0x8233CDEC,
+        0x8233CE08, 0x8233CE24, 0x8233CE40,
+    ] },
+    # Runtime-verified six-way vector-component permutation dispatcher. The
+    # literal table is exactly 0x820EC100..0x820EC114 and executable case code
+    # resumes at 0x820EC118. All three static callers pass constant r4 values
+    # within 0..5 (the reached call passes 2).
+    { base = 0x820EC0E8, r = 4, labels = [
+        0x820EC1D4, 0x820EC190, 0x820EC1AC,
+        0x820EC140, 0x820EC168, 0x820EC118,
+    ] },
+    # Runtime-verified nibble-to-lowercase-hex dispatcher. The exact 16-word
+    # literal table occupies 0x8237ADA0..0x8237ADDC. Both static callers mask
+    # a byte nibble and range-check r3 <= 15 before the bctr at 0x8237AD9C.
+    # Each target is a two-instruction leaf returning the corresponding ASCII
+    # digit; the dynamically reached r3=15 case returns 'f' at 0x8237ADE0.
+    { base = 0x8237AD88, r = 3, labels = [
+        0x8237AE58, 0x8237AE50, 0x8237AE48, 0x8237AE40,
+        0x8237AE38, 0x8237AE30, 0x8237AE28, 0x8237AE20,
+        0x8237AE18, 0x8237AE10, 0x8237AE08, 0x8237AE00,
+        0x8237ADF8, 0x8237ADF0, 0x8237ADE8, 0x8237ADE0,
+    ] },
+    # Runtime-verified five-way floating-point helper dispatcher. The exact
+    # literal table occupies 0x822FDF4C..0x822FDF5C and all targets are
+    # internal blocks of the already-correct 0x822FDF20 function owner. The
+    # caller at 0x82300A90 checks r6 <= 4; the other static caller passes zero.
+    { base = 0x822FDF34, r = 6, labels = [
+        0x822FDF78, 0x822FDF94, 0x822FDFDC,
+        0x822FDF60, 0x822FE024,
+    ] },
+    # Statically verified paired state dispatchers inside 0x821C45C8. The
+    # function copies signed-byte argument r4 into r24 at 0x821C46A8 and
+    # rejects r24 > 4 at 0x821C46C0..0x821C46C4 before either dispatcher can
+    # execute. The literal tables occupy 0x821C4974..0x821C4984 and
+    # 0x821C4B18..0x821C4B28; every label is an internal block owned by this
+    # function, whose final tail transfer is at 0x821C4BB8.
+    { base = 0x821C495C, r = 24, labels = [
+        0x821C4988, 0x821C4A94, 0x821C4988,
+        0x821C49B0, 0x821C4988,
+    ] },
+    { base = 0x821C4B00, r = 24, labels = [
+        0x821C4B2C, 0x821C4BA8, 0x821C4B88,
+        0x821C4B54, 0x821C4B88,
+    ] },
+    # Statically verified seven-way flag-conversion leaf dispatcher. Its sole
+    # static caller computes r4 = r31 - 4 and checks that value is <= 6 at
+    # 0x82589FC0..0x82589FCC before calling 0x82589A58. The literal table is
+    # 0x82589A74..0x82589A8C and every case ends in blr before the next prologue.
+    { base = 0x82589A5C, r = 4, labels = [
+        0x82589A90, 0x82589AA0, 0x82589AB0, 0x82589B28,
+        0x82589AB8, 0x82589B28, 0x82589AE8,
+    ] },
+    # Statically verified seven-way render-format leaf dispatcher. Both direct
+    # callers load r4 from byte +0x19 and check r4 <= 6 immediately before the
+    # calls at 0x827CC87C and 0x827CCAD0.
+    { base = 0x827CC178, r = 4, labels = [
+        0x827CC1AC, 0x827CC22C, 0x827CC1D4, 0x827CC22C,
+        0x827CC21C, 0x827CC22C, 0x827CC1F8,
+    ] },
+    # Statically verified 23-way type-classification leaf dispatcher. Both
+    # direct callers normalize the source byte by subtracting two and check
+    # the resulting r3 <= 22 before calling this helper.
+    { base = 0x821971A8, r = 3, labels = [
+        0x8219721C, 0x8219721C, 0x8219721C, 0x8219721C,
+        0x8219721C, 0x8219721C, 0x8219722C, 0x8219722C,
+        0x82197224, 0x82197224, 0x8219722C, 0x8219722C,
+        0x8219722C, 0x8219722C, 0x8219722C, 0x8219722C,
+        0x8219722C, 0x8219722C, 0x82197224, 0x8219722C,
+        0x8219722C, 0x8219722C, 0x82197224,
+    ] },
+    # Statically verified 59-way enum-remap leaf dispatcher. Its sole direct
+    # caller computes r3 = value - 1 and checks unsigned r3 <= 58 at
+    # 0x82114384..0x8211438C immediately before the call at 0x82114390.
+    { base = 0x82113F00, r = 3, labels = [
+        0x82114004, 0x8211400C, 0x82114014, 0x8211401C,
+        0x82114024, 0x8211402C, 0x82114034, 0x8211403C,
+        0x82114044, 0x8211404C, 0x82114054, 0x8211405C,
+        0x82114064, 0x8211406C, 0x82114074, 0x8211407C,
+        0x82114084, 0x8211408C, 0x82114094, 0x8211409C,
+        0x821140A4, 0x821140AC, 0x821140B4, 0x821140BC,
+        0x821140C4, 0x821140CC, 0x821140D4, 0x821140DC,
+        0x821140E4, 0x821140EC, 0x821140F4, 0x821140FC,
+        0x82114104, 0x8211410C, 0x82114114, 0x8211411C,
+        0x82114124, 0x8211412C, 0x82114134, 0x8211413C,
+        0x82114144, 0x8211414C, 0x82114154, 0x8211415C,
+        0x82114164, 0x8211416C, 0x82114174, 0x8211417C,
+        0x82114184, 0x8211418C, 0x82114194, 0x8211419C,
+        0x821141A4, 0x821141AC, 0x821141B4, 0x821141BC,
+        0x82114004, 0x82114184, 0x82114194,
+    ] },
+    # Statically verified 52-way name lookup. Eight direct callers pass only
+    # constants 32, 33, or 35; the remaining caller normalizes by subtracting
+    # 128 and checks unsigned r3 <= 51 at 0x8231126C..0x82311274.
+    { base = 0x82310F50, r = 3, labels = [
+        0x82311038, 0x82311038, 0x82311038, 0x82311038,
+        0x82311038, 0x82311038, 0x82311038, 0x82311038,
+        0x823110F8, 0x823110F8, 0x823110F8, 0x823110F8,
+        0x823110F8, 0x823110F8, 0x823110F8, 0x823110F8,
+        0x823110F8, 0x823110F8, 0x823110F8, 0x823110F8,
+        0x823110F8, 0x823110F8, 0x823110F8, 0x823110F8,
+        0x823110F8, 0x823110F8, 0x823110F8, 0x823110F8,
+        0x823110F8, 0x823110F8, 0x823110F8, 0x823110F8,
+        0x82311044, 0x82311050, 0x8231105C, 0x82311068,
+        0x82311074, 0x82311080, 0x8231108C, 0x8231108C,
+        0x82311098, 0x823110A4, 0x823110B0, 0x823110BC,
+        0x823110F8, 0x823110F8, 0x823110F8, 0x823110F8,
+        0x823110C8, 0x823110D4, 0x823110E0, 0x823110EC,
+    ] },
+    # Statically verified 15-way vector-math dispatcher. The owner compares
+    # unsigned r4 with 14 at 0x826F947C; no intervening instruction changes
+    # CR6 before the bgt at 0x826F9550 exits out-of-range calls.
+    { base = 0x826F9554, r = 4, labels = [
+        0x826F95A8, 0x826F95A8, 0x826F95A8, 0x826F99D0,
+        0x826F9BE4, 0x826F9DDC, 0x826F97BC, 0x826F95A8,
+        0x826F9FF0, 0x826FA1B8, 0x826F95A8, 0x826FA3B0,
+        0x826FA3B0, 0x826FA5EC, 0x826FA5EC,
+    ] },
+    # Statically verified second 21-way dispatcher inside 0x82982A68. r19 is
+    # argument r6 minus 11 and is checked unsigned <= 20 at 0x82982B38 before
+    # the owner's first dispatch. No path reassigns r19 before this table.
+    { base = 0x82982E40, r = 19, labels = [
+        0x82982EAC, 0x82982EAC, 0x82983008, 0x82982EAC,
+        0x82982EAC, 0x82982F94, 0x82982EAC, 0x82982F20,
+        0x82982EAC, 0x82982EAC, 0x82983008, 0x82983008,
+        0x82982EAC, 0x82982EAC, 0x82983008, 0x82983008,
+        0x82983008, 0x82983008, 0x82982EAC, 0x82982EAC,
+        0x82982EAC,
+    ] },
+    # Statically verified seven-way scalar curve dispatcher inside 0x8272F270.
+    # The callee copies argument r7 to r28 at 0x8272F298 and does not reassign
+    # it. All nine direct callsites pass constants in {0,2,5,6}.
+    { base = 0x8272F4F8, r = 28, labels = [
+        0x8272F52C, 0x8272F52C, 0x8272F604, 0x8272F6C4,
+        0x8272F73C, 0x8272F77C, 0x8272F5CC,
+    ] },
+]
+
+restgprlr_14_address = 0x82899A40
+savegprlr_14_address = 0x828999F0
+restfpr_14_address = 0x8289A1DC
+savefpr_14_address = 0x8289A190
+restvmx_14_address = 0x829B8F08
+savevmx_14_address = 0x829B8C70
+restvmx_64_address = 0x829B8F9C
+savevmx_64_address = 0x829B8D04
+
+# Verified from raw XEX control flow. Each range begins after a preceding `blr`/tail
+# transfer (or at an independently reachable entry), includes every configured inline
+# table and target, and ends immediately after the final reachable `blr` before the
+# next entry. The original XenonAnalyse switch-table output remains untouched.
+functions = [
+    # Raw-XEX-verified optimized memset owner. 0x828999E0 and 0x828999E8 are
+    # fall-through tail blocks reached after the conditional-return sequence
+    # in 0x82899950, not independent functions. Splitting them caused byte
+    # remainders of two or three to return after only the first tail byte; the
+    # live 666-byte glass mapping clear consequently left its final byte stale.
+    # The next independent entry begins at the save-GPR helper 0x828999F0.
+    { address = 0x82899950, size = 0xA0 },
+    { address = 0x821281F0, size = 0x180 },
+    { address = 0x822699A0, size = 0x740 },
+    { address = 0x82759248, size = 0x408 },
+    { address = 0x82759650, size = 0x420 },
+    { address = 0x82759A70, size = 0x418 },
+    { address = 0x827D7740, size = 0x420 },
+    { address = 0x827D7F80, size = 0x3D8 },
+    # Phase 3: conservative CFG-derived ranges. Each has an inbound direct-call
+    # reference, complete switch-target reachability, only known indirect branches,
+    # and one or more terminal return/tail blocks. See SWITCH_RANGE_PROPOSALS.csv.
+    { address = 0x8214C658, size = 0x60 },
+    { address = 0x8215D318, size = 0x70 },
+    { address = 0x82181FD0, size = 0x1A8 },
+    { address = 0x821A8CF0, size = 0x78 },
+    { address = 0x821F51F0, size = 0xA0 },
+    { address = 0x821FE7C0, size = 0x148 },
+    { address = 0x82269550, size = 0x1B0 },
+    { address = 0x82269700, size = 0x168 },
+    { address = 0x8226AC50, size = 0x154 },
+    { address = 0x8230CF50, size = 0x78 },
+    { address = 0x8237A628, size = 0x188 },
+    { address = 0x8238A228, size = 0x158 },
+    { address = 0x8238A380, size = 0x170 },
+    { address = 0x8248B3B0, size = 0x150 },
+    { address = 0x824BFE40, size = 0x140 },
+    { address = 0x824CD220, size = 0xA8 },
+    { address = 0x824E6118, size = 0x1A8 },
+    { address = 0x82500E90, size = 0x160 },
+    { address = 0x82531BA8, size = 0xB0 },
+    { address = 0x82583FB0, size = 0x90 },
+    { address = 0x825921F8, size = 0x68 },
+    { address = 0x82688C48, size = 0x1E0 },
+    { address = 0x82709398, size = 0x158 },
+    { address = 0x827541B0, size = 0x180 },
+    { address = 0x827548B8, size = 0x160 },
+    # Verified parser ownership. The range begins after the preceding tail stub
+    # and contains all three parser tables through the final blr at 0x82759244.
+    { address = 0x82758E50, size = 0x3F8 },
+    # The sole external tail-table label is a two-instruction block that
+    # transfers to the verified entry at 0x82274A70.
+    { address = 0x82275008, size = 0x8 },
+    # Runtime-verified indirect parser dispatch. The owner has a standard
+    # prologue at 0x8222B468, a 28-entry inline bctr table at 0x8222B5E8,
+    # and case code through the terminal restore/return at 0x8222CBAC. The
+    # dynamically selected case 0x8222B65C is an internal block, not a
+    # callable entry. The next independent prologue begins at 0x8222CBB0.
+    { address = 0x8222B468, size = 0x1748 },
+    # Verified owner for the paired r24 dispatchers above. The standard
+    # prologue starts at 0x821C45C8, both complete tables and all target blocks
+    # are internal, and the last reachable instruction is the restore-tail at
+    # 0x821C4BB8. 0x821C4BBC is padding; the next independent prologue starts
+    # at 0x821C4BC0.
+    { address = 0x821C45C8, size = 0x5F4 },
+    # Verified owner for the seven-way leaf dispatcher above. The range starts
+    # at the callable entry and ends after the final blr at 0x82589B2C; the
+    # next independent prologue begins at 0x82589B30.
+    { address = 0x82589A58, size = 0xD8 },
+    # Verified leaf owners for the bounded dispatchers above. Each range ends
+    # immediately after its final reachable blr and before padding/the next
+    # independently callable entry.
+    { address = 0x827CC178, size = 0xBC },
+    { address = 0x821971A8, size = 0x8C },
+    { address = 0x82113F00, size = 0x2CC },
+    { address = 0x82310F50, size = 0x1B0 },
+    # The vector-math owner begins at the standard prologue, contains all 15
+    # cases, and ends with the restore-tail at 0x826FA824. The next independent
+    # prologue starts at 0x826FA828.
+    { address = 0x826F9258, size = 0x15D0 },
+    # Runtime-verified owner for the nibble-to-hex dispatcher above. The
+    # inline literal table and all sixteen two-instruction return leaves are
+    # one callable helper. The next independent prologue starts at 0x8237AE60.
+    { address = 0x8237AD88, size = 0xD8 },
+    # Runtime-verified owner for the six-way tail dispatcher above. Each case
+    # ends in blr; 0x8233CE64 is padding and the next independent function
+    # starts at 0x8233CE68.
+    { address = 0x8233CD80, size = 0xE4 },
+    { address = 0x82760440, size = 0xF8 },
+    { address = 0x82789838, size = 0x128 },
+    { address = 0x8278EC38, size = 0xD0 },
+    { address = 0x8278ED08, size = 0xC0 },
+    { address = 0x827C9CA8, size = 0x138 },
+    { address = 0x82822A08, size = 0x688 },
+    { address = 0x828DE198, size = 0x120 },
+    { address = 0x828DE3F0, size = 0xD0 },
+    { address = 0x828DE4C0, size = 0x4D8 },
+    { address = 0x82905EF8, size = 0x228 },
+    { address = 0x829170C8, size = 0xD8 },
+    # Cross-reference phase: exact .rdata function-pointer or external-call
+    # evidence establishes these candidate entries as independently callable.
+    # Their ranges are the complete CFG ownership ranges from the source audit.
+    { address = 0x82278D48, size = 0xB8 },
+    { address = 0x82303BA8, size = 0x518 },
+    { address = 0x824A1268, size = 0x118 },
+    { address = 0x8254AF00, size = 0xA0 },
+    { address = 0x8254BC78, size = 0xA0 },
+    { address = 0x82550508, size = 0x98 },
+    { address = 0x8255DF00, size = 0x68 },
+    { address = 0x8255F7E8, size = 0xB8 },
+    { address = 0x825B8318, size = 0x580 },
+    { address = 0x825EB9F0, size = 0x1C8 },
+    { address = 0x825EBCD0, size = 0x1F8 },
+    # Leaf ranges with no surviving static inbound reference.  Each starts after
+    # a preceding terminal return, owns every configured case target, and ends
+    # at the next independently callable entry.
+    { address = 0x828DEA40, size = 0x368 },
+    { address = 0x82955258, size = 0x2C8 },
+]

@@ -1,0 +1,105 @@
+# Estacado - ignore rules.
+# History must never contain game-derived or regenerable material: game files,
+# generated recompiled code, shader/pipeline data, saves and profiles, logs,
+# captures, build outputs and packages. Nested repositories (external/*) keep
+# their own history and are recorded here as submodules.
+
+# Game files and dumps
+game/
+the darkness orignal xbox 360 game/
+the darkness original xbox 360 game/
+Darkness, The (USA, Europe) (En,Fr,De,Es,It)/
+*.xex
+*.XEX
+*.xexp
+*.XEXP
+*.iso
+*.ISO
+*.god
+*.GOD
+
+# Material derived from the game executable. XenonAnalyse output is
+# regenerable; the hand-made overlay darkness_recomp_switch_correction.toml
+# and the recompiler configs are tracked.
+config/darkness_switch_tables.toml
+docs/*.csv
+
+# Generated recompiled code
+generated/
+
+# Shader/pipeline data built from the game's shaders: packaged seed,
+# persistent storage files and replacement packs
+config/pipeline_seed/
+*.xsh
+*.xpso
+*.xsrp
+
+# Saves, profiles and per-run data
+user_data/
+runtime_data/
+Checkpoint
+_profile
+*.header
+
+# Captures, readbacks and crash dumps
+*.bmp
+*.png
+*.jpg
+*.dds
+*.tga
+*.bin
+*.dmp
+*.mdmp
+*.crash
+
+# Logs (test fixtures are source)
+logs/
+*.log
+!tests/register_helpers/fixtures/*.log
+
+# Build outputs and packages
+build/
+out/
+external/*/build/
+external/*/out/
+*.pdb
+*.exe
+*.dll
+*.lib
+*.obj
+*.ilk
+*.map
+*.pyc
+__pycache__/
+
+# Local reference clones and downloaded tool snapshots (our tool sources are kept)
+.reference/
+tools/*
+!tools/*.cpp
+!tools/*.h
+!tools/*.py
+!tools/xenos_shader_disasm/
+!tools/game_setup/
+
+# Editors and OS
+.vs/
+.vscode/
+*.user
+*.suo
+*.VC.db
+Thumbs.db
+
+# Game-derived and local data (never commit)
+*.tsv
+*.xfc
+*.xcd
+*.xcr
+*.xdf
+*.xpc
+*.xtc
+*.profraw
+language_packs/
+texture_packs/
+game/
+# Our own README screenshots are part of the repository.
+!docs/screenshots/*.jpg

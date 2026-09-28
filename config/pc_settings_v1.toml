@@ -1,0 +1,227 @@
+# PC settings schema 1.
+#
+# These are the Enhanced PC defaults. Without a TheDarkness.pc.toml beside
+# TheDarkness.exe the game runs exactly these values; the settings launcher
+# and the in-game settings overlay save your changes into TheDarkness.pc.toml
+# (created from this file). The Original / Xbox-Compatible configuration is
+# the packaged preset presets/original_720p.toml. Select any file explicitly
+# with --pc-config <path>.
+# Portable save/profile data defaults to runtime_data beside the executable.
+# Launchers may select a managed writable directory with
+# --user-data-root <path>; this does not change original game content.
+# The game reads its configuration once at startup; the in-game overlay
+# applies the settings it marks live at once and the rest at the next start.
+
+pc_config_version = 1
+
+# Output/window resolution. Supported presets include native, 720p, 1080p,
+# 1440p, 4k, and explicit WIDTHxHEIGHT values up to 8192x8192. In a decorated
+# window this selects the physical presentation surface. Borderless fullscreen
+# follows the selected monitor's desktop surface; the value remains the
+# restored window size. The guest-facing Xbox mode remains the verified
+# 1280x720 compatibility mode.
+output_resolution = "native"
+
+# Optional window overrides. Leave at zero to follow the resolution preset.
+window_width = 0
+window_height = 0
+fullscreen = true
+# Explicit PC mode. `auto` is retained only for legacy ReXGlue configurations;
+# this project supports decorated windowed and borderless desktop modes, not
+# exclusive fullscreen.
+window_mode = "borderless"
+monitor = 0
+
+# Internal Xenos render scale, independent of output size. For the title's
+# 1280x720 reference buffers, 2 produces 2560x1440 and 3 produces 3840x2160.
+# 0 is Automatic: the first time, the game times the graphics card on the
+# title screen (stored per card in the user data folder as
+# gpu_calibration.toml) and from the next start picks the highest scale that
+# keeps the busiest street at the recommended frame rate (60-120 FPS); until
+# then it guesses from video memory (2, 3 for 4K on 16 GB cards, 1 below
+# 6 GB or 1000 output lines). Scale 1 is the Original value.
+resolution_scale = 0
+# Title data-pass annotations that internal scaling requires (three RGB
+# lookup-table passes keep the native grid; targets narrower than 640 pixels
+# stay native). Not settings: the game adds them itself when a configuration
+# raises resolution_scale without them.
+draw_resolution_scale_threshold = 640
+draw_resolution_scale_native_grid_rules = "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26"
+
+# Post-process AA: none (the original output), fxaa, fxaa_extreme or smaa
+# (SMAA 1x: edges without FXAA's blur, same cost as fxaa_extreme). Temporal
+# AA and the upscalers are graphics.temporal_aa below.
+swap_post_effect = "smaa"
+
+# Anisotropic filtering: -1 (title-selected), 0 (disabled), 1/2/3/4/5
+# (1x/2x/4x/8x/16x). The Original preset forces 4x (3).
+anisotropic_override = 5
+
+[general]
+# Xbox title language. The extracted multi-language release contains these
+# exact options: english, german, french, spanish, and italian. "auto"
+# follows the Windows display language like the console's dashboard language
+# (English when the game does not ship that language).
+language = "auto"
+
+[graphics]
+# false selects the exact sibling shader permutations that remove only the
+# camera motion blur while retaining exposure, RGB-map color grading, glow
+# and gamma behavior. true is the Xbox title-native final composite.
+# motion_blur_off_shader_pack: empty = the built-in patch of those shaders;
+# a path = a shader replacement pack file to use instead.
+motion_blur = false
+motion_blur_off_shader_pack = ""
+hd_textures = false
+temporal_aa = "off"
+
+[present]
+# Upscaling: how the rendered image is fitted to the screen.
+#   "auto"     - AMD FSR 1 when the internal image is smaller than the output
+#                (for example 1x on a 1440p screen); a 1:1 image is untouched.
+#   "fsr"      - AMD FSR 1 always (sharpens a 1:1 image with CAS).
+#   "bilinear" - plain bilinear filtering (the original presentation).
+#   "cas"      - AMD CAS sharpening (and resampling up to 2x).
+# FSR 1 and CAS run on any graphics card; the overlay applies changes at once.
+effect = "auto"
+# Preserve the complete Xbox 16:9 image on non-16:9 displays. Wider displays
+# receive pillarboxes and taller displays receive letterboxes; no title image
+# is stretched or cropped while safe aspect expansion is still under audit.
+letterbox = true
+allow_overscan_cutoff = false
+safe_area_x = 100
+safe_area_y = 100
+
+[display]
+# vsync: VSync On - synchronized, tear-free default; G-SYNC/FreeSync
+#        displays still follow the frame rate
+# immediate: VSync Off - unsynchronized presentation; tearing may be visible
+# vrr: presents without waiting (tearing allowed) for variable-refresh
+#      displays; tears on fixed-refresh displays. Without DXGI tearing
+#      support it falls back to synchronized presentation
+present_mode = "vsync"
+
+# Number of frames that DXGI may queue. 1 lowers latency most aggressively;
+# 2 is the compatibility value; 3 may smooth heavily loaded systems.
+max_frame_latency = 1
+
+# Custom frame cap in frames per second, used when frame_rate = "custom".
+# Zero means no cap.
+frame_limit = 0
+
+# Frame rate. The title's world keeps its fixed 30 Hz tick in every mode, so
+# movement, scripted scenes, animation and audio stay real-time.
+#   "original"     - the game's own pacing (30 FPS in gameplay). Restart to change.
+#   "60"           - 60 FPS.
+#   "half_refresh" - half the display refresh (72 on a 144 Hz display).
+#   "refresh"      - the display refresh (144 on a 144 Hz display).
+#   "custom"       - frame_limit above.
+#   "uncapped"     - no cap; use with present_mode "vrr" or "immediate".
+#   "120", "144"... - any whole number from 20 to 1000 caps at that rate.
+# With present_mode = "vsync", rates that divide the display refresh are paced
+# by the display and look even; other rates (for example 120 on 144 Hz)
+# alternate between one and two refreshes unless the display has VRR.
+frame_rate = "refresh"
+
+# Menus, the title screen and loading: "reduced" runs them at about 60 FPS
+# at most (a whole divisor of the refresh with VSync, 48 on 144 Hz) - the
+# menu backdrop costs more GPU time per frame than gameplay; "full" uses
+# the gameplay frame rate.
+menu_frame_rate = "reduced"
+widescreen = false
+
+[camera]
+# The decoded title viewport's original horizontal FOV is 95 degrees. The
+# setting changes only the verified main gameplay viewport; scripted and
+# cutscene setters remain title-owned and are not globally scaled.
+field_of_view = 86.0
+
+[audio]
+# Final host PCM output only. 1.0 preserves the exact title mix; 0.0 silences
+# physical playback without changing guest mixing, callbacks, or timing.
+master_volume = 1.0
+
+[input]
+# Keyboard and mouse from the focused game window are merged into controller
+# slot 0; a connected controller keeps working. false preserves the physical
+# Xbox/XInput path exactly. Changing it or its controller slot requires a
+# restart; sensitivity and inversion also apply live from the overlay.
+keyboard_mouse = true
+keyboard_mouse_user_index = 0
+mouse_sensitivity = 1.0
+# Optional bounded per-physical-event acceleration. 0.0 is exact linear input;
+# 1.0 reaches at most 2x gain for a 32-count-or-larger event.
+mouse_acceleration = 0.0
+# Optional two-sample smoothing at the guest-poll boundary. 0.0 is exact
+# identity; 1.0 averages adjacent polls and has at most one poll of tail.
+mouse_smoothing = 0.0
+mouse_invert_y = false
+# "native" turns the camera with the title's own look command: raw mouse
+# counts, 1:1, no stick dead zone, ramp or turn cap. "stick" keeps the
+# older mouse-to-right-stick bridge. Changing it requires a restart.
+mouse_look = "native"
+# Opens the in-game settings overlay (F1, F2, F4-F8 or F11; Esc also
+# closes it). Changing it requires a restart.
+overlay_key = "F1"
+# These are standard Xbox profile preferences consumed by The Darkness through
+# its native controller setup. They do not add host-side analog shaping.
+controller_sensitivity = "medium" # medium, low, high
+controller_invert_y = false
+# Physical motor output only. 1.0 preserves the exact guest request; 0.0
+# disables rumble without changing guest input, packet state, or return codes.
+vibration_scale = 1.0
+
+[input.controller_bind]
+# Optional physical XInput digital-button remapping. Keys are guest actions;
+# values are physical button names or "none". The identity map below preserves
+# the original controller exactly. Analog triggers/sticks and title dead zones
+# remain untouched.
+dpad_up = "dpad_up"
+dpad_down = "dpad_down"
+dpad_left = "dpad_left"
+dpad_right = "dpad_right"
+start = "start"
+back = "back"
+left_stick = "left_stick"
+right_stick = "right_stick"
+left_shoulder = "left_shoulder"
+right_shoulder = "right_shoulder"
+guide = "guide"
+a = "a"
+b = "b"
+x = "x"
+y = "y"
+
+[input.bind]
+# Rebindable physical keys. Mouse motion uses SDL's native relative mode while
+# focused/captured, avoiding desktop-edge clipping or cursor-warp deltas.
+a = "Space"
+b = "Shift"
+x = "R"
+y = "E"
+left_trigger = "RMB"
+right_trigger = "LMB"
+left_shoulder = "Q"
+right_shoulder = "F"
+lstick_up = "W"
+lstick_down = "S"
+lstick_left = "A"
+lstick_right = "D"
+lstick_press = "C"
+rstick_press = "MMB"
+dpad_up = "Up"
+dpad_down = "Down"
+dpad_left = "Left"
+dpad_right = "Right"
+back = "Tab"
+start = "Escape"
+guide = ""
+
+# Mouse 4/5 use X1/X2. Physical wheel detents use WheelUp/WheelDown and are
+# preserved as bounded one-poll pulses so quick scrolling cannot become a
+# permanently held guest button.
+
+[diagnostics]
+# Bounded to 128 native viewport setter events when enabled. Keep disabled for
+# normal play and performance measurements.
+camera_state = false

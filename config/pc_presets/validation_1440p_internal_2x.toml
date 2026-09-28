@@ -1,0 +1,67 @@
+# Consolidated internal-2x validation profile, not a promoted playable baseline.
+# V162 Probes276/277 prove native-grid RGB-table parity; full physical
+# title/menu/gameplay and character/effect fidelity remain pending.
+# 2560x1440 borderless output and actual2560x1440 scene rendering.
+
+pc_config_version = 1
+output_resolution = "1440p"
+window_width = 0
+window_height = 0
+fullscreen = true
+window_mode = "borderless"
+monitor = 0
+resolution_scale = 2
+draw_resolution_scale_threshold = 640
+# Verified data-pass semantic annotations, not user-adjustable image effects.
+draw_resolution_scale_native_grid_rules = "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26"
+swap_post_effect = "fxaa_extreme"
+anisotropic_override = 5
+
+[general]
+language = "english"
+
+[graphics]
+motion_blur = false
+motion_blur_off_shader_pack = ""
+hd_textures = false
+temporal_aa = "off"
+
+[present]
+effect = "bilinear"
+letterbox = true
+allow_overscan_cutoff = false
+safe_area_x = 100
+safe_area_y = 100
+
+[display]
+# This requests VRR eligibility; actual monitor engagement requires validation.
+# Unsupported tearing falls back to synchronized VSync.
+present_mode = "vrr"
+max_frame_latency = 1
+# Host refresh/presentation settings do not unlock the guest simulation rate.
+frame_limit = 0
+frame_rate = "original"
+menu_frame_rate = "reduced"
+widescreen = false
+
+[camera]
+field_of_view = 86.0
+
+[audio]
+master_volume = 1.0
+
+[input]
+keyboard_mouse = true
+keyboard_mouse_user_index = 0
+mouse_sensitivity = 1.0
+mouse_acceleration = 0.0
+mouse_smoothing = 0.0
+mouse_invert_y = false
+mouse_look = "native"
+overlay_key = "F1"
+controller_sensitivity = "medium"
+controller_invert_y = false
+vibration_scale = 1.0
+
+[diagnostics]
+camera_state = false

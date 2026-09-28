@@ -1,0 +1,16 @@
+# Loose-file override manifest, schema 1.
+# Copy this file beside TheDarkness.exe as TheDarkness.mods.toml to opt in.
+# Mod content belongs under the adjacent mods directory. Original extracted
+# game content remains read-only and is never copied into a mod package.
+
+mods_config_version = 1
+enabled = false
+
+# Higher priority wins. Equal priorities are ordered by case-insensitive ID.
+# Conflicts are reported once at startup with both layer IDs.
+#
+# [[mod]]
+# id = "example-texture-pack"
+# path = "example-texture-pack"
+# priority = 100
+# enabled = true

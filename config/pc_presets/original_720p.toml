@@ -1,0 +1,58 @@
+# Original / Xbox-Compatible preset
+pc_config_version = 1
+output_resolution = "720p"
+window_width = 0
+window_height = 0
+fullscreen = true
+window_mode = "borderless"
+monitor = 0
+
+resolution_scale = 1
+swap_post_effect = "none"
+anisotropic_override = 3
+
+[general]
+language = "english"
+
+[graphics]
+motion_blur = true
+motion_blur_off_shader_pack = ""
+hd_textures = false
+temporal_aa = "off"
+
+[present]
+effect = "bilinear"
+letterbox = true
+allow_overscan_cutoff = false
+safe_area_x = 100
+safe_area_y = 100
+
+[display]
+present_mode = "vsync"
+max_frame_latency = 2
+frame_limit = 0
+frame_rate = "original"
+menu_frame_rate = "reduced"
+widescreen = false
+
+[camera]
+field_of_view = 86.0
+
+[audio]
+master_volume = 1.0
+
+[input]
+keyboard_mouse = false
+keyboard_mouse_user_index = 0
+mouse_sensitivity = 1.0
+mouse_acceleration = 0.0
+mouse_smoothing = 0.0
+mouse_invert_y = false
+mouse_look = "native"
+overlay_key = "F1"
+controller_sensitivity = "medium"
+controller_invert_y = false
+vibration_scale = 1.0
+
+[diagnostics]
+camera_state = false

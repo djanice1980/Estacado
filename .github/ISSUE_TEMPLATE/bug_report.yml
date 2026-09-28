@@ -1,0 +1,73 @@
+name: Bug report
+description: Something does not work, looks wrong or runs badly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. Please fill in what you can; the logs matter most.
+        Never attach game files (disc images, extracted files, saves of other people).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead? Where in the game (chapter, place)?
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      options:
+        - Crash or freeze
+        - Graphics (wrong image, flicker, missing effects)
+        - Performance (low or uneven frame rate, stutter)
+        - Controls (keyboard, mouse, controller)
+        - Audio
+        - Launcher or settings
+        - Game files setup
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release you use (the launcher's About shows it) or the commit you built.
+    validations:
+      required: true
+  - type: textarea
+    id: hardware
+    attributes:
+      label: PC
+      description: CPU, graphics card, graphics driver version, RAM, Windows version, screen resolution and refresh rate (and G-SYNC/FreeSync if used).
+      placeholder: |
+        CPU:
+        Graphics card:
+        Driver version:
+        RAM:
+        Windows:
+        Screen:
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings
+      description: Paste your TheDarkness.pc.toml (next to TheDarkness.exe), or name the preset you use.
+      render: toml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Attach the files from the `logs` folder next to TheDarkness.exe (launcher: About, then Logs): runtime_crash.log and any
+        TheDarkness_fatal_*.dmp / TheDarkness_stall_*.dmp files (zip them if they are large).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I use my own copy of the game (the launcher accepted the game files).
+          required: true
+        - label: I searched the existing issues first.

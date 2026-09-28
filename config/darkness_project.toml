@@ -1,0 +1,20 @@
+# Paths are relative to this file. Private inputs are ignored by Git.
+[input]
+xex_path = "../Darkness, The (USA, Europe) (En,Fr,De,Es,It)/default.xex"
+xexp_path = ""
+
+[tools]
+xenon_analyse = "../build/XenonRecomp-x64/XenonAnalyse/XenonAnalyse.exe"
+xenon_recomp = "../build/XenonRecomp-x64/XenonRecomp/XenonRecomp.exe"
+xenos_recomp = "../build/XenosRecomp/XenosRecomp.exe"
+
+[paths]
+runtime_root = "../runtime"
+generated_ppc = "../generated/ppc"
+logs = "../logs"
+build_root = "../build"
+switch_tables = "../config/darkness_switch_tables.toml"
+
+[build]
+configuration = "Release"
+generator = "Ninja"
