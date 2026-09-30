@@ -20,6 +20,7 @@
 
 #include <toml++/toml.hpp>
 
+#include "runtime_user_paths.h"
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
@@ -102,6 +103,10 @@ bool g_dpiChanged = false;
 
 struct Launcher {
     std::filesystem::path directory;
+    // Writable: settings, game location, logs, language packs, an extracted
+    // disc image (runtime_user_paths.h), and the saves root.
+    std::filesystem::path dataDirectory;
+    std::filesystem::path saveDirectory;
     std::filesystem::path runtimeExecutable;
     std::filesystem::path presetDirectory;
     std::filesystem::path activeConfig;
@@ -512,7 +517,8 @@ bool Launch(Launcher& app, bool safeMode) {
 
 // Which game the runtime will start and whether it is the supported version.
 void CheckGame(Launcher& app) {
-    const std::filesystem::path xex = setup::FindGameXex(app.directory);
+    std::filesystem::path xex = setup::FindGameXex(app.dataDirectory);
+    if (xex.empty()) xex = setup::FindGameXex(app.directory);
     app.gameFolder = xex.empty() ? std::filesystem::path() : xex.parent_path();
     if (xex.empty()) {
         app.gameStatus = setup::GameStatus::kMissing;
@@ -590,7 +596,7 @@ void StartJob(GameSetupJob& job, std::function<void(GameSetupJob&)> work) {
 
 // A folder with the extracted game: checked, then remembered.
 void SetUpFromFolder(Launcher& app, std::filesystem::path folder) {
-    const std::filesystem::path directory = app.directory;
+    const std::filesystem::path directory = app.dataDirectory;
     StartJob(*app.job, [directory, folder](GameSetupJob& job) {
         const setup::GameCheck check = setup::CheckGameFolder(folder);
         switch (check.status) {
@@ -620,7 +626,7 @@ void SetUpFromFolder(Launcher& app, std::filesystem::path folder) {
 // launcher (through a temporary folder, so a cancelled extraction never
 // looks like a game).
 void SetUpFromImage(Launcher& app, std::filesystem::path image) {
-    const std::filesystem::path directory = app.directory;
+    const std::filesystem::path directory = app.dataDirectory;
     StartJob(*app.job, [directory, image](GameSetupJob& job) {
         const setup::DiscImageInfo info = setup::InspectDiscImage(image);
         if (!info.ok) return FinishJob(job, false, "Unable to use this disc image.", info.error);
@@ -831,9 +837,9 @@ void DetectTexturePacks(Launcher& app) {
     // installed. V440: Arabic is offered only with a pack (installed, carried
     // by the package or downloadable).
     const ui::LanguagePackFolder arabic =
-        ui::ScanLanguagePackFolder(app.directory / L"language_packs" / L"arabic");
+        ui::ScanLanguagePackFolder(app.dataDirectory / L"language_packs" / L"arabic");
     app.arabicPackInstalled = arabic.strings && arabic.fonts;
-    app.offer = PcSettingsOfferFor(app.directory, kLanguagePackUrl[0] != '\0');
+    app.offer = PcSettingsOfferFor(app.dataDirectory, kLanguagePackUrl[0] != '\0');
     if (app.offer.arabic) {
         ui::DetectLanguagePack(app.model, arabic,
                                "the language_packs\\arabic folder in the game folder");
@@ -845,7 +851,7 @@ void DetectTexturePacks(Launcher& app) {
 // Installs a downloaded pack archive (worker thread) against the player's
 // own game files.
 void StartPackInstall(Launcher& app, std::filesystem::path archive, bool download) {
-    const std::filesystem::path directory = app.directory;
+    const std::filesystem::path directory = app.dataDirectory;
     const std::filesystem::path game = app.gameFolder;
     StartJob(*app.packJob, [directory, game, archive, download](GameSetupJob& job) {
         const auto progress = [&job](uint64_t done, uint64_t total) {
@@ -1010,7 +1016,7 @@ void UpdateDetections(Launcher& app) {
     bool measured = false;
     const RuntimeGpuIdentity gpu = RuntimeDetectGpuIdentity();
     const auto calibration =
-        RuntimeLoadGpuCalibration(RuntimeGpuCalibrationPath(app.directory / L"runtime_data"));
+        RuntimeLoadGpuCalibration(RuntimeGpuCalibrationPath(app.saveDirectory));
     if (calibration && RuntimeGpuCalibrationMatches(*calibration, gpu)) {
         RuntimeScaleChoiceInputs inputs;
         inputs.backdrop = calibration->backdrop;
@@ -1350,7 +1356,7 @@ void DrawAbout(Launcher& app) {
     };
     auto logs = [&] {
         if (ImGui::Button((Shown(app, Tr(app, "Logs")) + "##logs").c_str(), ImVec2(button, 0.0f))) {
-            OpenFolder(app.directory / L"logs");
+            OpenFolder(app.dataDirectory / L"logs");
         }
     };
     auto ok = [&] {
@@ -1572,13 +1578,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     Launcher app;
     app.directory = ExecutableDirectory();
-    app.offer = PcSettingsOfferFor(app.directory, kLanguagePackUrl[0] != '\0');
+    {
+        const RuntimeUserPaths user = ResolveRuntimeUserPaths(app.directory);
+        app.dataDirectory = user.data;
+        app.saveDirectory = user.saves;
+        std::error_code error;
+        std::filesystem::create_directories(app.dataDirectory / L"logs", error);
+    }
+    app.offer = PcSettingsOfferFor(app.dataDirectory, kLanguagePackUrl[0] != '\0');
     app.schemaOffer = app.offer;
     app.schema = BuildPcSettingsUiSchema(false, app.offer);
     app.model.schema = &app.schema;
     app.runtimeExecutable = app.directory / L"TheDarkness.exe";
     app.presetDirectory = app.directory / L"presets";
-    app.activeConfig = app.directory / L"TheDarkness.pc.toml";
+    app.activeConfig = app.dataDirectory / L"TheDarkness.pc.toml";
     app.exampleConfig = app.directory / L"TheDarkness.pc.example.toml";
     try {
         app.presets = EnumeratePcPresetOptions(app.presetDirectory);
@@ -1675,7 +1688,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         app.model.section = size_t(std::max(0, std::atoi(debug)));
         app.model.show_advanced = std::strchr(debug, ':') != nullptr;
         app.openAbout = std::strstr(debug, "about") != nullptr;
-        if (FILE* log = _wfopen((app.directory / L"launcher_debug.txt").c_str(), L"a")) {
+        if (FILE* log = _wfopen((app.dataDirectory / L"launcher_debug.txt").c_str(), L"a")) {
             std::fprintf(log, "defaults=%zu saved=%zu window_mode default=%s saved=%s\n",
                          app.model.defaults.size(), app.model.saved.size(),
                          ui::ValueOf(ui::PanelModel{&app.schema, {}, {}, app.model.defaults},
@@ -1692,9 +1705,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     // records the result in launcher_debug.txt.
     if (const char* archive = std::getenv("DARKNESS_LAUNCHER_INSTALL_PACK")) {
         const auto result = darkness::language_install::InstallPack(
-            std::filesystem::u8path(archive), app.gameFolder, app.directory, nullptr);
+            std::filesystem::u8path(archive), app.gameFolder, app.dataDirectory, nullptr);
         DetectTexturePacks(app);
-        if (FILE* log = _wfopen((app.directory / L"launcher_debug.txt").c_str(), L"a")) {
+        if (FILE* log = _wfopen((app.dataDirectory / L"launcher_debug.txt").c_str(), L"a")) {
             std::fprintf(log, "install_pack ok=%u language=%s message=%s detail=%s installed=%u\n",
                          result.ok ? 1u : 0u, result.language.c_str(), result.message.c_str(),
                          result.detail.c_str(), app.arabicPackInstalled ? 1u : 0u);
@@ -1715,7 +1728,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
             start = end + 1;
         }
         const bool saved = Save(app);
-        if (FILE* log = _wfopen((app.directory / L"launcher_debug.txt").c_str(), L"a")) {
+        if (FILE* log = _wfopen((app.dataDirectory / L"launcher_debug.txt").c_str(), L"a")) {
             std::fprintf(log, "test_edit saved=%u status=%s modal=%s %s\n", saved ? 1u : 0u,
                          app.status.c_str(), app.modalTitle.c_str(), app.modalText.c_str());
             std::fclose(log);
@@ -1752,7 +1765,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
             ++logged;
             RECT client{};
             GetClientRect(window, &client);
-            if (FILE* log = _wfopen((app.directory / L"launcher_debug.txt").c_str(), L"a")) {
+            if (FILE* log = _wfopen((app.dataDirectory / L"launcher_debug.txt").c_str(), L"a")) {
                 std::fprintf(log, "scale=%.3f dpi=%u client=%ldx%ld display=%.0fx%.0f font=%.1f\n",
                              g_dpiScale, GetDpiForWindow(window), client.right, client.bottom,
                              ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y,

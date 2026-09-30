@@ -1,4 +1,5 @@
 #include "runtime_pc_settings.h"
+#include "runtime_user_paths.h"
 #include "product_name.h"
 #include "runtime_game_setup.h"
 #include "pc_settings_schema.h"
@@ -73,11 +74,13 @@ std::filesystem::path AbsoluteNormalized(const std::filesystem::path& path) {
 }
 
 std::filesystem::path ResolveDefaultXexPath(
-    const std::filesystem::path& executableDirectory) {
+    const std::filesystem::path& executableDirectory,
+    const std::filesystem::path& dataDirectory) {
     // The player's game from the launcher's setup (location file or the
-    // extracted "game" folder), then the disc-dump folder name upwards.
+    // extracted "game" folder in the data folder), then the disc-dump folder
+    // name upwards from the executable.
     if (const std::filesystem::path configured =
-            darkness::game_setup::ConfiguredGameXex(AbsoluteNormalized(executableDirectory));
+            darkness::game_setup::ConfiguredGameXex(AbsoluteNormalized(dataDirectory));
         !configured.empty()) {
         return configured.lexically_normal();
     }
@@ -386,11 +389,12 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
     int argc, const char* const* argv,
     const std::filesystem::path& executableDirectory) {
     RuntimeLaunchOptions options{};
-    options.xexPath = ResolveDefaultXexPath(executableDirectory);
-    options.pcConfigPath = executableDirectory / kDefaultPcConfigName;
-    options.pcConfigInstallPath = executableDirectory / kDefaultPcConfigName;
-    options.modsConfigPath = executableDirectory / kDefaultModsConfigName;
-    options.userDataRoot = executableDirectory / L"runtime_data";
+    const RuntimeUserPaths user = ResolveRuntimeUserPaths(executableDirectory);
+    options.xexPath = ResolveDefaultXexPath(executableDirectory, user.data);
+    options.pcConfigPath = user.data / kDefaultPcConfigName;
+    options.pcConfigInstallPath = user.data / kDefaultPcConfigName;
+    options.modsConfigPath = user.data / kDefaultModsConfigName;
+    options.userDataRoot = user.saves;
 
     bool hasXexPath = false;
     bool hasPcConfigPath = false;

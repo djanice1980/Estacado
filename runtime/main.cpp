@@ -29,6 +29,7 @@
 #include "runtime_owned_camera_mode.h"
 #include "runtime_threads.h"
 #include "runtime_xam.h"
+#include "runtime_user_paths.h"
 #include "ppc_recomp_shared.h"
 
 #include <Windows.h>
@@ -165,9 +166,13 @@ void PrepareCrashEvidence() {
     wchar_t executable[MAX_PATH]{};
     const DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
     if (length && length < MAX_PATH) {
-        std::wstring directory(executable, length);
-        directory.erase(directory.find_last_of(L"\\/") + 1);
-        directory += L"logs\\";
+        // The player's data folder (next to the executable when portable,
+        // %LOCALAPPDATA% when installed). It is also the working directory,
+        // so the diagnostics that write a relative logs\ land there too.
+        const RuntimeUserPaths user =
+            ResolveRuntimeUserPaths(std::filesystem::path(executable, executable + length).parent_path());
+        SetCurrentDirectoryW(user.data.c_str());
+        std::wstring directory = (user.data / L"logs").wstring() + L"\\";
         if (directory.size() < MAX_PATH) wcscpy_s(g_crashDirectory, directory.c_str());
     }
     if (const HMODULE dbghelp =
@@ -383,6 +388,7 @@ int main(int argc, char** argv) {
         std::vector<const char*> launchArguments(argv, argv + argc);
         const std::filesystem::path executableDirectory =
             RuntimeExecutableDirectory();
+        const RuntimeUserPaths userPaths = ResolveRuntimeUserPaths(executableDirectory);
         const RuntimeLaunchOptions launchOptions = ParseRuntimeLaunchOptions(
             argc, launchArguments.data(), executableDirectory);
         gameStart = launchOptions.action == RuntimeLaunchAction::Run;
@@ -408,6 +414,8 @@ int main(int argc, char** argv) {
                       << "MOD_CONFIG_EXISTS="
                       << (std::filesystem::is_regular_file(launchOptions.modsConfigPath) ? 1 : 0)
                       << '\n'
+                      << "DATA_ROOT=" << userPaths.data.string() << '\n'
+                      << "PORTABLE=" << (userPaths.portable ? 1 : 0) << '\n'
                       << "USER_DATA_ROOT=" << launchOptions.userDataRoot.string() << '\n'
                       << "CONTENT_ROOT="
                       << (launchOptions.userDataRoot / L"content").string() << '\n'
@@ -668,7 +676,7 @@ int main(int argc, char** argv) {
         if (!languagePackName.empty()) {
             // REX_LANGUAGE_PACK_ROOT: another pack folder (developer checks).
             std::filesystem::path languagePackRoot =
-                executableDirectory / L"language_packs" / std::filesystem::path(languagePackName);
+                userPaths.data / L"language_packs" / std::filesystem::path(languagePackName);
             if (const char* root = std::getenv("REX_LANGUAGE_PACK_ROOT"); root && *root) {
                 languagePackRoot = std::filesystem::path(root);
             }
@@ -905,7 +913,7 @@ int main(int argc, char** argv) {
                 launchOptions.pcConfigPath.parent_path(), presetError);
             settingsService.persistence = startupPcConfig.present() &&
                                           configDirectory != presetDirectory;
-            settingsService.offer = PcSettingsOfferFor(executableDirectory);
+            settingsService.offer = PcSettingsOfferFor(userPaths.data);
             StartRuntimeSettingsService(settingsService);
         }
         auto* base = guestMemory.base;
