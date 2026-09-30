@@ -502,6 +502,10 @@ uint32_t QueryGuestInputState(uint8_t* base, uint32_t userIndex,
         guest.thumbLY = native.Gamepad.sThumbLY;
         guest.thumbRX = native.Gamepad.sThumbRX;
         guest.thumbRY = native.Gamepad.sThumbRY;
+        // Back + Start together opens the settings overlay (rexgpu-xenos
+        // polls it); the title sees neither while both are held.
+        constexpr uint16_t kOverlayChord = XINPUT_GAMEPAD_BACK | XINPUT_GAMEPAD_START;
+        if ((guest.buttons & kOverlayChord) == kOverlayChord) guest.buttons &= ~kOverlayChord;
         guest = RemapRuntimeControllerState(guest, RuntimeInputButtonMapCode());
     }
     if (keyboardMouse) {
