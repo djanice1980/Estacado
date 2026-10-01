@@ -1286,13 +1286,18 @@ std::string RuntimePcConfigWithTitleScaleRequirements(const std::string& content
     const auto scale = config["resolution_scale"].value<int64_t>();
     if (!scale || *scale <= 1) return contents;
     const bool hasThreshold = config.contains("draw_resolution_scale_threshold");
-    const bool hasRules = config.contains("draw_resolution_scale_native_grid_rules");
-    if (hasThreshold && hasRules) return contents;
+    const bool legacyRules =
+        config["draw_resolution_scale_native_grid_rules"].value<std::string>() ==
+        std::string(kLegacyTitleNativeGridRules);
+    const bool hasRules = config.contains("draw_resolution_scale_native_grid_rules") && !legacyRules;
+    const bool hasTracking = config.contains("native_resolve_region_tracking");
+    if (hasThreshold && hasRules && hasTracking) return contents;
     if (!hasThreshold) config.insert("draw_resolution_scale_threshold", kTitleScaleThreshold);
     if (!hasRules) {
-        config.insert("draw_resolution_scale_native_grid_rules",
-                      std::string(kTitleNativeGridRules));
+        config.insert_or_assign("draw_resolution_scale_native_grid_rules",
+                                std::string(kTitleNativeGridRules));
     }
+    if (!hasTracking) config.insert("native_resolve_region_tracking", true);
     std::ostringstream serialized;
     serialized.imbue(std::locale::classic());
     serialized << PcConfigFormatter(config) << '\n';

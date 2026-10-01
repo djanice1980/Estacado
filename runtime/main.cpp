@@ -687,7 +687,9 @@ int main(int argc, char** argv) {
             executableDirectory);
         if (titleScaleRequirementsAdded) {
             std::cout << "PC_CONFIG_TITLE_SCALE_REQUIREMENTS added=1 threshold="
-                      << kTitleScaleThreshold << " native_grid_rules=3\n";
+                      << kTitleScaleThreshold << " native_grid_rules="
+                      << 1 + std::count(kTitleNativeGridRules.begin(), kTitleNativeGridRules.end(), ';')
+                      << " native_resolve_region_tracking=1\n";
         }
         ConfigureRuntimeGraphicsScreenshotRoot(
             launchOptions.userDataRoot / L"screenshots");
