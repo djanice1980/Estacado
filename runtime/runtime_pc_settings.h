@@ -168,15 +168,35 @@ std::map<std::string, std::string> RuntimePcConfigSettingValues(
 // native grid and render targets narrower than 640 pixels stay native. They
 // are correctness requirements of this title, not player settings: raising
 // resolution_scale without them reproduces the verified atlas mis-sampling.
+// The bloom chain (downsample FAE3, blurs 9F1D/8F96) is written for 720p:
+// its taps cover a fixed texel footprint, so at internal scale it combs and
+// bands. It runs on the native grid like the 1x title, and its two consumers
+// (the in-scene glow quad 207D and the final composite's tf1) enlarge the
+// tracked native glow with native bilinear reconstruction
+// (native_resolve_region_tracking, :source=native).
 inline constexpr int64_t kTitleScaleThreshold = 640;
 inline constexpr std::string_view kTitleNativeGridRules =
     "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
     "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
+    "B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26;"
+    "B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:6:filter;"
+    "B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:26:filter;"
+    "B29F0BF45937C4C4:9F1D2D64E5F75924:0:1280:720:26:filter;"
+    "B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:90:6:filter;"
+    "B29F0BF45937C4C4:8F96D5C280D780BC:0:1280:720:26:filter;"
+    "EC4685ADB9CCBC13:207D40E674A7C916:0:1280:720:26:filter_scaled:source=native;"
+    "4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native";
+// The earlier built-in annotations (lookup tables only): configurations that
+// carry exactly these are upgraded to kTitleNativeGridRules.
+inline constexpr std::string_view kLegacyTitleNativeGridRules =
+    "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
+    "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
     "B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26";
 // The configuration text the graphics plugin receives: unchanged at internal
-// scale 1 or when both annotations are present; otherwise the missing ones
-// are added (explicit values in the configuration win). Throws when the text
-// cannot be parsed (it was validated before).
+// scale 1 or when all annotations are present; otherwise the missing ones
+// are added, including native_resolve_region_tracking = true (explicit
+// values in the configuration win, except the legacy rule string, which is
+// replaced). Throws when the text cannot be parsed (it was validated before).
 std::string RuntimePcConfigWithTitleScaleRequirements(const std::string& contents,
                                                       const std::string& sourceName,
                                                       bool* changed = nullptr);

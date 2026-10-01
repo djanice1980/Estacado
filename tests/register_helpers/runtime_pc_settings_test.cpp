@@ -1145,6 +1145,7 @@ int main() {
                             kTitleScaleThreshold &&
                         derived_table["draw_resolution_scale_native_grid_rules"].value_or(
                             std::string{}) == kTitleNativeGridRules &&
+                        derived_table["native_resolve_region_tracking"].value_or(false) &&
                         derived_table["display"]["frame_rate"].value_or(std::string{}) ==
                             "refresh",
                     "internal 2x without annotations must receive the title's validated ones");
@@ -1159,11 +1160,30 @@ int main() {
                     "an explicit threshold must win while missing rules are added");
     const std::string complete2 = explicit2 +
                                   "draw_resolution_scale_native_grid_rules = \"" +
-                                  std::string(kTitleNativeGridRules) + "\"\n";
+                                  std::string(kTitleNativeGridRules) + "\"\n" +
+                                  "native_resolve_region_tracking = false\n";
     passed &= Check(RuntimePcConfigWithTitleScaleRequirements(complete2, "complete2",
                                                               &changed) == complete2 &&
                         !changed,
-                    "a configuration with both annotations must reach the GPU unchanged");
+                    "a configuration with all annotations (explicit values) must reach the GPU unchanged");
+    const std::string legacy2 = std::string("pc_config_version = 1\nresolution_scale = 2\n") +
+                                "draw_resolution_scale_threshold = 640\n" +
+                                "draw_resolution_scale_native_grid_rules = \"" +
+                                std::string(kLegacyTitleNativeGridRules) + "\"\n";
+    const toml::table legacy_table = toml::parse(
+        RuntimePcConfigWithTitleScaleRequirements(legacy2, "legacy2", &changed));
+    passed &= Check(changed &&
+                        legacy_table["draw_resolution_scale_native_grid_rules"].value_or(
+                            std::string{}) == kTitleNativeGridRules &&
+                        legacy_table["native_resolve_region_tracking"].value_or(false),
+                    "the legacy lookup-table-only rules must be upgraded with region tracking");
+    const std::string custom2 = std::string("pc_config_version = 1\nresolution_scale = 2\n") +
+                                "draw_resolution_scale_native_grid_rules = \"A:B:0:16:16:6\"\n";
+    const toml::table custom_table = toml::parse(
+        RuntimePcConfigWithTitleScaleRequirements(custom2, "custom2", &changed));
+    passed &= Check(custom_table["draw_resolution_scale_native_grid_rules"].value_or(
+                        std::string{}) == "A:B:0:16:16:6",
+                    "custom rules must not be replaced");
     const auto derived_path = executable_directory / "title_scale_requirements.toml";
     std::filesystem::create_directories(executable_directory);
     std::ofstream(derived_path, std::ios::binary) << derived;
