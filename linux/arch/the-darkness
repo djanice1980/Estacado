@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# The Darkness (Estacado) on Linux: runs the Windows build under Proton.
+#
+#   the-darkness              start the game
+#   the-darkness --settings   the settings app (game files, presets, language)
+#   the-darkness --help       this text
+#
+# Runtime (THE_DARKNESS_RUNTIME):
+#   auto   umu when umu-launcher is installed, otherwise Steam (default)
+#   umu    umu-launcher with proton-cachyos; THE_DARKNESS_PROTON names another
+#          Proton folder. Without proton-cachyos, umu uses its own UMU-Proton.
+#   steam  Steam's Proton Experimental; THE_DARKNESS_STEAM_PROTON names
+#          another Proton folder.
+# Each runtime has its own Wine prefix, holding that runtime's settings and
+# saves (THE_DARKNESS_PREFIX overrides):
+#   ${XDG_DATA_HOME:-~/.local/share}/the-darkness-estacado/prefix-umu
+#   ${XDG_DATA_HOME:-~/.local/share}/the-darkness-estacado/prefix-steam
+# (Different Proton builds on one prefix make Proton re-version it; keeping
+# them apart protects the saves.) The game files are not included: choose
+# them in the settings app.
+set -euo pipefail
+
+app=${THE_DARKNESS_APP:-/opt/the-darkness-estacado}
+data=${XDG_DATA_HOME:-$HOME/.local/share}/the-darkness-estacado
+
+exe=TheDarkness.exe
+case "${1:-}" in
+  --settings) exe=TheDarknessSettings.exe; shift ;;
+  --help|-h) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
+[ -f "$app/$exe" ] || { echo "the-darkness: $app/$exe not found" >&2; exit 1; }
+
+runtime=${THE_DARKNESS_RUNTIME:-auto}
+if [ "$runtime" = auto ]; then
+  if command -v umu-run > /dev/null; then runtime=umu; else runtime=steam; fi
+fi
+
+prefix=${THE_DARKNESS_PREFIX:-$data/prefix-$runtime}
+mkdir -p "$prefix"
+
+case "$runtime" in
+  umu)
+    command -v umu-run > /dev/null || {
+      echo "the-darkness: umu-run not found. Install it with: sudo pacman -S umu-launcher proton-cachyos" >&2
+      exit 1
+    }
+    proton=${THE_DARKNESS_PROTON:-}
+    if [ -z "$proton" ]; then
+      for candidate in /usr/share/steam/compatibilitytools.d/proton-cachyos*; do
+        if [ -x "$candidate/proton" ]; then proton=$candidate; break; fi
+      done
+    fi
+    export WINEPREFIX="$prefix" GAMEID="${GAMEID:-umu-the-darkness-estacado}"
+    if [ -n "$proton" ]; then export PROTONPATH="$proton"; fi
+    exec umu-run "$app/$exe" "$@"
+    ;;
+  steam)
+    steam_root=
+    for candidate in "$HOME/.steam/steam" "$HOME/.local/share/Steam"; do
+      if [ -d "$candidate/steamapps" ]; then steam_root=$candidate; break; fi
+    done
+    proton=${THE_DARKNESS_STEAM_PROTON:-$steam_root/steamapps/common/Proton - Experimental}
+    [ -n "$steam_root" ] && [ -x "$proton/proton" ] || {
+      echo "the-darkness: Steam's Proton Experimental not found. Install it in Steam (Library > Tools)," >&2
+      echo "or install umu-launcher and proton-cachyos: sudo pacman -S umu-launcher proton-cachyos" >&2
+      exit 1
+    }
+    export STEAM_COMPAT_CLIENT_INSTALL_PATH="$steam_root" STEAM_COMPAT_DATA_PATH="$prefix"
+    exec "$proton/proton" run "$app/$exe" "$@"
+    ;;
+  *)
+    echo "the-darkness: THE_DARKNESS_RUNTIME must be auto, umu or steam" >&2
+    exit 2
+    ;;
+esac

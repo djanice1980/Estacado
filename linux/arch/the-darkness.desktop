@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=The Darkness
+Comment=The Darkness (Xbox 360) PC recompilation, run with Proton
+Exec=the-darkness
+Icon=applications-games
+Terminal=false
+Categories=Game;ActionGame;
