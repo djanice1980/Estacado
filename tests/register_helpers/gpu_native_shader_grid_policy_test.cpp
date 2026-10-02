@@ -14,7 +14,7 @@ int main() {
   check(Parse("", rules) && rules.count == 0, "empty policy must leave scaling unchanged");
   check(Parse(seed, rules) && rules.count == 1, "verified annotation must parse");
   const Rule rule = rules.entries[0];
-  check(RequiresNativeRasterization(rule), "data tables retain native evaluation");
+  check(RequiresNativeRasterization(rule, 0), "data tables retain native evaluation");
   check(Matches(rule, rule.vertex_hash, rule.pixel_hash, true, 324, 18, 6, 0, 15),
         "matching single-sample data pass must keep its native grid");
   check(!Matches(rule, 1, rule.pixel_hash, true, 324, 18, 6, 0, 15), "other VS must be isolated");
@@ -51,11 +51,13 @@ int main() {
   check(Parse(filter, rules) && rules.count == 1 && rules.entries[0].image_filter,
         "image-filter mode requires an explicit annotation");
   const auto filter_rule = rules.entries[0];
-  check(RequiresNativeRasterization(filter_rule), "old filter policy remains compatible");
+  check(RequiresNativeRasterization(filter_rule, 0), "old filter policy remains compatible");
+  check(RequiresNativeRasterization(filter_rule, 2), ":filter renders 4-sample passes native too");
   check(Parse("1:2:0:1280:720:26:filter_scaled", rules) && rules.count == 1 &&
         rules.entries[0].image_filter && rules.entries[0].scaled_filter_output,
         "scaled filter is explicit; not inferred from shader dimensions");
-  check(!RequiresNativeRasterization(rules.entries[0]),
+  check(!RequiresNativeRasterization(rules.entries[0], 0) &&
+            !RequiresNativeRasterization(rules.entries[0], 2),
         "source footprint must be independent of image-filter output grid");
   check(Matches(rules.entries[0], 1, 2, true, 1280, 720, 26, 1, 15, 0x18700270),
         "scaled filter shares the guarded depth-disabled image contract");
@@ -70,8 +72,11 @@ int main() {
     check(!Matches(filter_rule, 1, 2, true, 1280, 720, 26, 1, 15, 0x18700270 | depth_bit),
           "filter mode must never reclassify depth/stencil work");
   }
-  check(!Matches(filter_rule, 1, 2, true, 1280, 720, 26, 2, 15),
-        "unobserved 4-sample filter family stays outside the implementation");
+  // The title's bloom runs in 4x MSAA (2x when the game lowers it under load).
+  check(Matches(filter_rule, 1, 2, true, 1280, 720, 26, 2, 15, 0x18700270),
+        "depth-disabled 4-sample image filter is covered");
+  check(!Matches(filter_rule, 1, 2, true, 1280, 720, 26, 3, 15, 0x18700270),
+        "sample counts above 4 stay outside the implementation");
   check(!Matches(filter_rule, 1, 2, true, 320, 180, 26, 1, 15),
         "filter mode must match its exact declared source domain");
   check(!Parse(filter + ";1:2:0:1280:720:26", rules),
@@ -79,7 +84,9 @@ int main() {
   check(!Parse("1:2:0:1280:720:26:unknown", rules), "unknown mode must not parse");
   check(FilterSamplingSupported(2, 2, true, 0, true), "verified 2x footprint supported");
   check(!FilterSamplingSupported(1, 1, true, 0, true), "native source path remains unchanged");
-  check(!FilterSamplingSupported(3, 3, true, 0, true), "no guessed 3x footprint");
+  check(FilterSamplingSupported(3, 3, true, 0, true) && FilterSamplingSupported(4, 4, true, 0, true),
+        "3x and 4x footprints are exact box reductions (S reads per axis)");
+  check(!FilterSamplingSupported(5, 5, true, 0, true), "scales above 4x stay unsupported");
   check(!FilterSamplingSupported(2, 1, true, 0, true), "no guessed asymmetric footprint");
   check(!FilterSamplingSupported(2, 2, false, 0, true), "point/mixed filtering unchanged");
   check(!FilterSamplingSupported(2, 2, true, 1, true), "mipped resources unchanged");
@@ -92,6 +99,32 @@ int main() {
   check(!FilterInstructionSupported(false, 0, 0, false, false), "unnormalized coordinates excluded");
   check(!FilterInstructionSupported(true, 0, 0, true, false), "explicit LOD excluded");
   check(!FilterInstructionSupported(true, 0, 0, false, true), "explicit gradients excluded");
+
+  // Image filter options: sample count, explicit image region, tracked native
+  // source, and several fetches of one draw.
+  check(Parse("1:2:0:1280:720:26:filter_scaled:msaa=4", rules) &&
+            rules.entries[0].msaa_samples == 4 &&
+            Matches(rules.entries[0], 1, 2, true, 1280, 720, 26, 2, 15, 0x18700270) &&
+            !Matches(rules.entries[0], 1, 2, true, 1280, 720, 26, 1, 15, 0x18700270),
+        ":msaa= matches only its sample count");
+  check(Parse("1:2:0:1280:720:26:filter_scaled:msaa=4;1:2:0:1280:720:26:filter_scaled:msaa=1", rules) &&
+            rules.count == 2,
+        "the same pass split by sample count is not a duplicate");
+  check(Parse("1:2:0:1280:720:26:filter_scaled:region=0,0,160,90", rules) &&
+            rules.entries[0].has_region && rules.entries[0].region_right == 160 &&
+            rules.entries[0].region_bottom == 90,
+        ":region= names the native sub-image");
+  check(!Parse("1:2:0:160:90:6:filter:region=0,0,200,90", rules), "a region must fit the texture");
+  check(!Parse("1:2:1:324:18:6:region=0,0,10,10", rules), "options need an image filter");
+  check(Parse("1:2:0:1280:720:26:filter_scaled:source=native", rules) &&
+            rules.entries[0].native_source,
+        ":source=native parses");
+  check(!Parse("1:2:0:1280:720:26:filter_scaled:source=native:region=0,0,10,10", rules),
+        ":source=native and :region= are exclusive");
+  check(!Parse("1:2:0:1280:720:26:filter_scaled:source=scaled", rules), "unknown source rejected");
+  check(Parse("1:2:0:1280:720:26:filter_scaled;1:2:1:1280:720:26:filter_scaled:source=native", rules) &&
+            rules.count == 2,
+        "two fetches of one draw may each carry a rule");
 
   // Synthetic fixture for the normalized-bilinear repeat copy of a lookup table.
   // samples x=-.25,y=-.25 for the first 2x subpixel. The nonadjacent edge

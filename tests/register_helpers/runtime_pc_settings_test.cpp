@@ -1,5 +1,6 @@
 #include "runtime_pc_settings.h"
 #include "runtime_auto_scale.h"
+#include "runtime_user_paths.h"
 #include <toml++/toml.hpp>
 
 #ifndef NOMINMAX
@@ -39,6 +40,11 @@ int main() {
   bool passed = true;
   const auto executable_directory =
       std::filesystem::temp_directory_path() / "darkness pc candidate";
+  // The candidate folder is a portable one (runtime_user_paths.h): its
+  // defaults are the files next to the executable. An unmarked folder is an
+  // installed copy, checked separately below.
+  std::filesystem::create_directories(executable_directory);
+  std::ofstream(executable_directory / "portable.txt") << "portable test folder\n";
 
   {
     const char* argv[] = {"TheDarkness.exe"};
@@ -66,6 +72,31 @@ int main() {
                             executable_directory / "runtime_data")
                             .lexically_normal(),
                     "default user data must preserve portable runtime_data");
+  }
+
+  // An installed copy (no portable.txt, no earlier portable data) keeps
+  // settings in %LOCALAPPDATA%\The Darkness and saves in Saved Games.
+  {
+    const auto installed_directory =
+        std::filesystem::temp_directory_path() / "darkness installed candidate";
+    std::error_code error;
+    std::filesystem::remove_all(installed_directory, error);
+    std::filesystem::create_directories(installed_directory, error);
+    const char* argv[] = {"TheDarkness.exe"};
+    const auto options = ParseRuntimeLaunchOptions(1, argv, installed_directory);
+    const auto local = RuntimeKnownFolder(FOLDERID_LocalAppData) / "The Darkness";
+    const auto saved = RuntimeKnownFolder(FOLDERID_SavedGames) / "The Darkness";
+    passed &= Check(!local.empty() && !saved.empty() &&
+                        options.pcConfigPath == local / "TheDarkness.pc.toml" &&
+                        options.pcConfigInstallPath == local / "TheDarkness.pc.toml" &&
+                        options.modsConfigPath == local / "TheDarkness.mods.toml",
+                    "installed default settings must live in LocalAppData");
+    passed &= Check(options.userDataRoot == saved,
+                    "installed default saves must live in Saved Games");
+    passed &= Check(!std::filesystem::exists(installed_directory / "TheDarkness.pc.toml") &&
+                        !std::filesystem::exists(installed_directory / "runtime_data"),
+                    "an installed copy must not write into the program folder");
+    std::filesystem::remove_all(installed_directory, error);
     passed &= Check(options.action == RuntimeLaunchAction::Run,
                     "default launch action must run the title");
     passed &= Check(!options.pcConfigExplicit,
@@ -380,6 +411,8 @@ int main() {
     std::error_code error;
     std::filesystem::remove_all(install_root, error);
     std::filesystem::create_directories(preset_root, error);
+    // Portable folder: the installed configuration sits beside the executable.
+    std::ofstream(install_root / "portable.txt") << "portable test folder\n";
     const auto source = preset_root / "original_720p.toml";
     const auto destination = install_root / "TheDarkness.pc.toml";
     const std::string original =

@@ -556,7 +556,9 @@ int main() {
               service.find("BuildPcSettingsUiSchema(false, config.offer)") != std::string::npos &&
               service.find("config.offer.arabic && language != saved.end()") !=
                   std::string::npos &&
-              main_source.find("settingsService.offer = PcSettingsOfferFor(executableDirectory);") !=
+              // The offer reads the data folder (language packs live there;
+              // runtime_user_paths.h), like the launcher's app.dataDirectory.
+              main_source.find("settingsService.offer = PcSettingsOfferFor(userPaths.data);") !=
                   std::string::npos &&
               main_source.find("PcExperimentalFeature(\"temporal_aa\"), &shelvedTemporalAa);") !=
                   std::string::npos,
