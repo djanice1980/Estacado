@@ -915,7 +915,7 @@ int main(int argc, char** argv) {
                 launchOptions.pcConfigPath.parent_path(), presetError);
             settingsService.persistence = startupPcConfig.present() &&
                                           configDirectory != presetDirectory;
-            settingsService.offer = PcSettingsOfferFor(userPaths.data);
+            settingsService.offer = PcSettingsOfferFor(userPaths.data, executableDirectory);
             StartRuntimeSettingsService(settingsService);
         }
         auto* base = guestMemory.base;

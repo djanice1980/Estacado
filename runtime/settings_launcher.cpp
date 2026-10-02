@@ -839,7 +839,7 @@ void DetectTexturePacks(Launcher& app) {
     const ui::LanguagePackFolder arabic =
         ui::ScanLanguagePackFolder(app.dataDirectory / L"language_packs" / L"arabic");
     app.arabicPackInstalled = arabic.strings && arabic.fonts;
-    app.offer = PcSettingsOfferFor(app.dataDirectory, kLanguagePackUrl[0] != '\0');
+    app.offer = PcSettingsOfferFor(app.dataDirectory, app.directory, kLanguagePackUrl[0] != '\0');
     if (app.offer.arabic) {
         ui::DetectLanguagePack(app.model, arabic,
                                "the language_packs\\arabic folder in the game folder");
@@ -1585,7 +1585,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
         std::error_code error;
         std::filesystem::create_directories(app.dataDirectory / L"logs", error);
     }
-    app.offer = PcSettingsOfferFor(app.dataDirectory, kLanguagePackUrl[0] != '\0');
+    app.offer = PcSettingsOfferFor(app.dataDirectory, app.directory, kLanguagePackUrl[0] != '\0');
     app.schemaOffer = app.offer;
     app.schema = BuildPcSettingsUiSchema(false, app.offer);
     app.model.schema = &app.schema;

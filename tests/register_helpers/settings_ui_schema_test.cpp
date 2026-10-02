@@ -536,10 +536,32 @@ int main() {
     const PcSettingsOffer strings_missing = PcSettingsOfferFor(folder);
     std::ofstream(folder / "language_packs" / "arabic" / "strings.tsv") << "x";
     const PcSettingsOffer installed = PcSettingsOfferFor(folder);
-    std::filesystem::remove_all(folder, error);
+    std::filesystem::remove_all(folder / "language_packs", error);
     check(!none.arabic && !none.temporalAa && download.arabic && bundled.arabic &&
               !strings_missing.arabic && installed.arabic,
           "Arabic is offered only with an installed, carried or downloadable pack");
+
+    // An installed copy: packs install into the data folder, while the
+    // package carries its archive in the program folder.
+    const std::filesystem::path data = folder / "data";
+    const std::filesystem::path program = folder / "program";
+    std::filesystem::create_directories(data / "language_packs", error);
+    std::filesystem::create_directories(program / "language_packs", error);
+    const PcSettingsOffer split_none = PcSettingsOfferFor(data, program);
+    std::ofstream(program / "language_packs" / "arabic_language_pack.zip") << "zip";
+    const PcSettingsOffer split_carried = PcSettingsOfferFor(data, program);
+    std::filesystem::remove(program / "language_packs" / "arabic_language_pack.zip", error);
+    std::ofstream(data / "language_packs" / "arabic_language_pack.zip") << "zip";
+    const PcSettingsOffer split_stray = PcSettingsOfferFor(data, program);
+    std::filesystem::remove(data / "language_packs" / "arabic_language_pack.zip", error);
+    std::filesystem::create_directories(
+        data / "language_packs" / "arabic" / "content" / "Content" / "Fonts", error);
+    std::ofstream(data / "language_packs" / "arabic" / "strings.tsv") << "x";
+    const PcSettingsOffer split_installed = PcSettingsOfferFor(data, program);
+    std::filesystem::remove_all(folder, error);
+    check(!split_none.arabic && split_carried.arabic && !split_stray.arabic &&
+              split_installed.arabic,
+          "an installed copy offers the program folder's archive and the data folder's pack");
 
     // Both surfaces build their schema from the folder's offer, and the game
     // turns a saved temporal AA choice off without the switch.
@@ -556,9 +578,12 @@ int main() {
               service.find("BuildPcSettingsUiSchema(false, config.offer)") != std::string::npos &&
               service.find("config.offer.arabic && language != saved.end()") !=
                   std::string::npos &&
-              // The offer reads the data folder (language packs live there;
-              // runtime_user_paths.h), like the launcher's app.dataDirectory.
-              main_source.find("settingsService.offer = PcSettingsOfferFor(userPaths.data);") !=
+              // Installed packs live in the data folder, the carried archive
+              // beside the executable (runtime_user_paths.h), as in the launcher.
+              launcher.find("PcSettingsOfferFor(app.dataDirectory, app.directory,") !=
+                  std::string::npos &&
+              main_source.find(
+                  "settingsService.offer = PcSettingsOfferFor(userPaths.data, executableDirectory);") !=
                   std::string::npos &&
               main_source.find("PcExperimentalFeature(\"temporal_aa\"), &shelvedTemporalAa);") !=
                   std::string::npos,
