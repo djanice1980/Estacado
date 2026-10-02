@@ -1,0 +1,33 @@
+# The Darkness (Estacado) for CachyOS/Arch: packages a build from
+# linux/build.sh (build/package). Run linux/build-arch-package.sh, which
+# stages the files, fills in the version and checksums, and calls makepkg.
+pkgname=the-darkness-estacado
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc="The Darkness (Xbox 360) PC recompilation (Estacado), run with Proton; needs your own copy of the game"
+arch=('x86_64')
+url="https://github.com/djanice1980/Estacado"
+license=('MIT' 'LicenseRef-Estacado-third-party')
+depends=('bash')
+optdepends=('umu-launcher: run outside Steam (the default runtime)'
+            'proton-cachyos: the Proton build umu uses by default'
+            'steam: alternative runtime with Proton Experimental')
+options=('!strip' '!debug')
+source=("estacado-$pkgver.tar"
+        'the-darkness'
+        'the-darkness.desktop'
+        'the-darkness-settings.desktop')
+sha256sums=(@SHA256SUMS@)
+
+package() {
+  install -d "$pkgdir/opt/$pkgname"
+  cp -r --no-preserve=ownership "$srcdir/estacado/." "$pkgdir/opt/$pkgname/"
+  find "$pkgdir/opt/$pkgname" -type d -exec chmod 755 {} +
+  find "$pkgdir/opt/$pkgname" -type f -exec chmod 644 {} +
+  install -Dm755 the-darkness "$pkgdir/usr/bin/the-darkness"
+  install -Dm644 the-darkness.desktop "$pkgdir/usr/share/applications/the-darkness.desktop"
+  install -Dm644 the-darkness-settings.desktop \
+    "$pkgdir/usr/share/applications/the-darkness-settings.desktop"
+  install -d "$pkgdir/usr/share/licenses/$pkgname"
+  cp -r --no-preserve=ownership "$srcdir/estacado/licenses/." "$pkgdir/usr/share/licenses/$pkgname/"
+}

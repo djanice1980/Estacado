@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=The Darkness Settings
+Comment=Choose the game files, presets and language for The Darkness
+Exec=the-darkness --settings
+Icon=applications-games
+Terminal=false
+Categories=Game;Settings;

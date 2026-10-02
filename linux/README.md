@@ -75,5 +75,31 @@ C++ runtime. It doesn't include any game files. After installing, settings
 and logs go to `%LOCALAPPDATA%\The Darkness` and saves to `Saved Games\The
 Darkness`.
 
-The package and the installer contain the game's code in translated form.
-Keep them for your own use.
+## CachyOS / Arch package
+
+```bash
+linux/build-arch-package.sh
+sudo pacman -U build/arch/the-darkness-estacado-*.pkg.tar.zst
+```
+
+This builds a pacman package from `build/package`. It installs the game to
+`/opt/the-darkness-estacado`, adds a `the-darkness` command and two menu
+entries (The Darkness, The Darkness Settings), and comes off again with
+`sudo pacman -R the-darkness-estacado`. It doesn't include any game files:
+start **The Darkness Settings** (or `the-darkness --settings`), choose your
+game folder or disc image and a preset, then play.
+
+It runs under Proton in one of two ways (`the-darkness --help`):
+
+- **umu** (the default when installed): `sudo pacman -S umu-launcher
+  proton-cachyos`. No Steam needed; the first start downloads umu's Steam
+  Linux Runtime (about 650 MB).
+- **Steam**: Steam with Proton Experimental installed (Library > Tools).
+  Used when umu isn't installed, or with `THE_DARKNESS_RUNTIME=steam`.
+
+Each runtime keeps its own Wine prefix under
+`~/.local/share/the-darkness-estacado/` (`prefix-umu`, `prefix-steam`) with
+that runtime's settings and saves, so they don't carry over when you switch.
+
+The packages and the installer contain the game's code in translated form
+and no game data; see Legal in the main README.
