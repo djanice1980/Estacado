@@ -14,9 +14,9 @@ need your own copy of the game (see [Game files](#game-files) and
 > NVIDIA RTX graphics card. Other hardware (AMD, Intel, older NVIDIA, laptops)
 > is untested. Please report what you find.
 
-**Steam Deck:** a player reports that it runs flawlessly under Proton
-Experimental after setting it up on Windows and copying the folder over. The
-settings launcher on the Deck itself is [issue #2](https://github.com/invinceble55-wq/Estacado/issues/2).
+**Steam Deck:** a player reports that with 0.9.1 both the settings launcher
+and the game work on the Deck under Proton: the launcher starts there and
+launches into the game ([issue #2](https://github.com/invinceble55-wq/Estacado/issues/2)).
 A Steam Deck preset is included. If you copy the folder to a Deck, see
 [Saves and settings](#saves-and-settings) to take your saves along.
 
