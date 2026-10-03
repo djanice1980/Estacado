@@ -196,6 +196,106 @@ int main() {
           "pipeline records after a corrupt one are not imported");
   }
 
+  {
+    // 0.9.1 shader index (#5): hash, size, type and the hash of the first 32
+    // bytes per shader, never the microcode; shaders shorter than 32 bytes
+    // (s3: 8 dwords is exactly 32, kept; a 4-dword one is dropped) and other
+    // versions are left out.
+    const auto tiny = ShaderRecord(5, 4, false);
+    const auto store = Concat(header, {s1, s2, s3, tiny});
+    const auto index = seed::BuildShaderIndex(store, kShaderVersion);
+    std::vector<seed::ShaderIndexEntry> entries;
+    check(seed::ParseShaderIndex(index, kShaderVersion, entries) && entries.size() == 3 &&
+              index.size() == 8 + 3 * seed::kShaderIndexRecordSize,
+          "the index lists every shader of at least 32 bytes");
+    std::vector<seed::Record> records;
+    seed::ParseShaders(store, kShaderVersion, records);
+    bool fields = entries.size() == 3;
+    for (size_t i = 0; fields && i < 3; ++i) {
+      const uint8_t* ucode = store.data() + records[i].offset + seed::kShaderRecordHeaderSize;
+      const size_t bytes = records[i].size - seed::kShaderRecordHeaderSize;
+      fields = entries[i].ucode_hash == records[i].hash &&
+               entries[i].dword_count * 4 == bytes &&
+               entries[i].type == (i == 0 ? 0u : 1u) &&
+               entries[i].prefix_hash == XXH3_64bits(ucode, seed::kIndexPrefixBytes);
+    }
+    check(fields, "index entries carry only the storage hash, size, type and prefix hash");
+    check(!seed::ParseShaderIndex(index, kShaderVersion + 1, entries) && entries.empty(),
+          "an index of another shader format version is ignored");
+  }
+
+  {
+    // 0.9.1 shader rebuild list (#5): ProgramCache containers (big-endian
+    // header, microcode at virtual size + physical offset) and the patch list
+    // (source hash, dwords as XOR masks) that turns a source into the shader
+    // the game draws with.
+    const auto be32 = [](std::vector<uint8_t>& out, uint32_t value) {
+      out.push_back(uint8_t(value >> 24));
+      out.push_back(uint8_t(value >> 16));
+      out.push_back(uint8_t(value >> 8));
+      out.push_back(uint8_t(value));
+    };
+    // One vertex container: 64 virtual bytes (header, shader block at 40),
+    // then 16 bytes of microcode.
+    std::vector<uint8_t> cache(5, 0xEE);  // leading bytes before the container
+    const size_t container = cache.size();
+    be32(cache, 0x102A1101);  // flags: vertex
+    be32(cache, 64);          // virtual size
+    be32(cache, 16);          // physical size
+    be32(cache, 0);
+    be32(cache, 36);          // constant table offset
+    be32(cache, 0);
+    be32(cache, 40);          // shader block offset
+    be32(cache, 0);
+    be32(cache, 0);
+    be32(cache, 0);           // [36] constant table
+    be32(cache, 0);           // [40] microcode physical offset
+    be32(cache, 16);          // [44] microcode bytes
+    cache.resize(container + 64, 0);
+    const uint32_t source_words[4] = {0x00000688, 0, 0x05F82000, 0x12345678};
+    const auto* source_bytes = reinterpret_cast<const uint8_t*>(source_words);
+    cache.insert(cache.end(), source_bytes, source_bytes + sizeof(source_words));
+    const auto shaders = seed::ParseProgramCache(cache);
+    check(shaders.size() == 1 && shaders[0].offset == container + 64 && shaders[0].bytes == 16 &&
+              shaders[0].type == 0 &&
+              !std::memcmp(cache.data() + shaders[0].offset, source_words, 16),
+          "a ProgramCache container yields its microcode span and stage");
+
+    uint32_t runtime_words[4] = {0x00393A88, 3, 0x05F82000, 0x12345678};
+    const uint64_t runtime_hash = XXH3_64bits(runtime_words, sizeof(runtime_words));
+    std::vector<uint8_t> list;
+    seed::AppendU32(list, seed::kShaderPatchMagic);
+    seed::AppendU32(list, seed::ByteSwap32(kShaderVersion));
+    seed::AppendU32(list, 1);
+    AppendU64(list, runtime_hash);
+    AppendU64(list, XXH3_64bits(source_words, sizeof(source_words)));
+    seed::AppendU32(list, 4);  // dwords
+    seed::AppendU32(list, 0);  // vertex
+    seed::AppendU32(list, 2);  // patches
+    seed::AppendU32(list, 0);
+    seed::AppendU32(list, source_words[0] ^ runtime_words[0]);
+    seed::AppendU32(list, 1);
+    seed::AppendU32(list, source_words[1] ^ runtime_words[1]);
+    std::vector<seed::ShaderPatchEntry> patches;
+    check(seed::ParseShaderPatches(list, kShaderVersion, patches) && patches.size() == 1 &&
+              patches[0].patches.size() == 2 && patches[0].dword_count == 4,
+          "the rebuild list parses");
+    uint32_t rebuilt[4];
+    std::memcpy(rebuilt, cache.data() + shaders[0].offset, sizeof(rebuilt));
+    for (const auto& [index, mask] : patches[0].patches) rebuilt[index] ^= mask;
+    check(XXH3_64bits(rebuilt, sizeof(rebuilt)) == patches[0].runtime_hash,
+          "the patched source matches the runtime shader hash");
+    check(!seed::ParseShaderPatches(list, kShaderVersion + 1, patches) && patches.empty(),
+          "a rebuild list of another shader format version is ignored");
+    std::vector<uint8_t> bad = list;
+    bad[bad.size() - 16] = 9;  // a patch beyond the shader
+    check(!seed::ParseShaderPatches(bad, kShaderVersion, patches),
+          "a patch outside the shader rejects the list");
+    list.push_back(0);
+    check(!seed::ParseShaderPatches(list, kShaderVersion, patches),
+          "trailing bytes reject the list");
+  }
+
   std::filesystem::remove_all(root, error);
   if (passed) std::cout << "Pipeline storage seed tests passed\n";
   return passed ? 0 : 1;

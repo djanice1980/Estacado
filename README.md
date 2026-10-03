@@ -11,11 +11,14 @@ need your own copy of the game (see [Game files](#game-files) and
 [Legal](#legal)).
 
 > **Pre-release.** So far it has been tested on one Windows 11 PC with an
-> NVIDIA RTX graphics card. Other hardware (AMD, Intel, older NVIDIA, laptops,
-> Steam Deck) is untested. Please report what you find.
+> NVIDIA RTX graphics card. Other hardware (AMD, Intel, older NVIDIA, laptops)
+> is untested. Please report what you find.
 
-**Steam Deck:** a Steam Deck preset is included, but the port has not been
-tested on a Deck yet. Reports from Steam Deck players are very welcome.
+**Steam Deck:** a player reports that it runs flawlessly under Proton
+Experimental after setting it up on Windows and copying the folder over. The
+settings launcher on the Deck itself is [issue #2](https://github.com/invinceble55-wq/Estacado/issues/2).
+A Steam Deck preset is included. If you copy the folder to a Deck, see
+[Saves and settings](#saves-and-settings) to take your saves along.
 
 ## What it offers
 
@@ -30,11 +33,14 @@ tested on a Deck yet. Reports from Steam Deck players are very welcome.
 - **Widescreen (experimental)**: fills 21:9, 32:9 and 16:10 screens with more
   view at the sides; menus stay centred.
 - **Controls**: keyboard and mouse with native mouse look and rebindable
-  keys, or a controller; adjustable field of view.
+  keys (on-screen prompts show your keys), or a controller; adjustable field
+  of view.
 - **Settings** in a launcher (presets: Enhanced, Performance, Original, Steam
   Deck) and in an overlay over the running game (F1).
-- **Motion blur on/off** and **HD texture packs** (folder-based
-  replacements).
+- **Motion blur on/off** and support for **HD texture packs**: folder-based
+  replacements made by players. No pack is included or provided (the game's
+  textures belong to its publisher); [docs/HD_TEXTURE_PACKS.md](docs/HD_TEXTURE_PACKS.md)
+  explains how to install one and how to make one.
 
 ## Screenshots
 
@@ -57,7 +63,7 @@ Our own captures from test runs of this port.
 
 ## Game files
 
-The recompiled code matches exactly one version of the game:
+The recompiled code is that of this version, the one we own and test:
 
 | | |
 |---|---|
@@ -65,8 +71,21 @@ The recompiled code matches exactly one version of the game:
 | Disc image (Redump) | `Darkness, The (USA, Europe) (En,Fr,De,Es,It).iso`, SHA-256 `46f7305c1e1972e888d3624f15b0ed483923aeeb50ecad0c6bf5b42f69d52a90` |
 | `default.xex` | SHA-256 `aace35a8f9bcdc7f28aeab9ff8cf3bdf200353f5c83705f6284487347acb3c5f` |
 
-Other regions, versions or title updates will not work. Dump the game from
-your own disc; this project does not provide or link to game files.
+**Other releases** are accepted when they contain the same code. The launcher
+decides this itself: it decrypts your `default.xex` and compares its code,
+its structure and the data the code depends on with the version above. Text,
+fonts and the game's own strings may differ, so a localised release that only
+replaces those works and shows its own language. We can only fully test the
+version we own: we checked a Russian release this way (same code, only text
+and font data differ) but have not played it through.
+
+A release with different code (another build of the game, or a title update)
+does not run yet. The launcher says so plainly and saves a detailed report in
+`logs\game_version_report.txt` (names, sizes and hashes only, no game data)
+that you can attach to an issue if you like. Never upload game files.
+
+Dump the game from your own disc; this project does not provide or link to
+game files.
 
 ## Install
 
@@ -84,9 +103,29 @@ folder of your choice (not inside *Program Files*). Or build it yourself: see
 3. Pick a preset (Enhanced is recommended), adjust anything you like and press
    **Play**.
 
-Settings are stored in `TheDarkness.pc.toml` next to the executables; saves
-in `runtime_data`. The launcher's **About** button shows the version and opens
-the licence texts and the `logs` folder.
+The launcher's **About** button shows the version and where your saves are,
+and opens the licence texts and the `logs` folder.
+
+### Saves and settings
+
+Your saves and settings are kept in your Saved Games folder,
+`%USERPROFILE%\Saved Games\Estacado` (settings: `TheDarkness.pc.toml`; saves:
+`content`), apart from the program. An update can go into a new folder or
+over the old one without touching your progress.
+
+- **Coming from 0.9.0:** extract the new version over your old folder (or
+  into it). On its first start it copies that folder's saves, settings and
+  screenshots to Saved Games, checks every copied file, and leaves the
+  originals untouched as a backup (a note, `SAVES_MOVED.txt`, says so). If
+  the copy cannot be made, the game keeps using the old folder and tries again
+  at the next start.
+- **0.9.0 in another folder:** in the launcher, **About**, then **Import
+  saves...**, and choose the old folder. Saves already in Saved Games are kept
+  under a new name, never overwritten.
+- **Portable (USB drive, a folder copied to a Steam Deck or another PC):** put
+  an empty file named `portable.txt` next to `TheDarkness.exe`. Saves and
+  settings then stay inside the game folder (`TheDarkness.pc.toml` and
+  `runtime_data`), as in 0.9.0.
 
 ## Settings overview
 
@@ -103,7 +142,8 @@ launcher says so for each.
   blur, HD texture packs.
 - **Camera**: field of view.
 - **Controls / Key bindings**: keyboard and mouse, mouse look, sensitivity,
-  controller options.
+  button prompts (automatic, Xbox buttons or keyboard keys), controller
+  options.
 - **Language**.
 
 ## Languages
@@ -128,8 +168,15 @@ Windows display language.
   menu, and System Link finds no games.
 - Widescreen (experimental): at 21:9 and wider, subtitles are drawn larger
   than at 16:9 and two-line subtitles can overlap.
-- The first minutes of play can stutter briefly while shaders are compiled
-  for your graphics card; later sessions reuse them.
+- Shaders the release's list does not cover yet (mostly later levels) are
+  compiled for your graphics card the first time they appear, which can
+  stutter briefly; later sessions reuse them.
+- Being looked into: green glitches in the Otherworld until a restart
+  ([#14](https://github.com/invinceble55-wq/Estacado/issues/14)), face
+  shading that flickers in some conversations
+  ([#4](https://github.com/invinceble55-wq/Estacado/issues/4)) and dark
+  triangles on some character models
+  ([#6](https://github.com/invinceble55-wq/Estacado/issues/6)).
 - Not in this release: HDR output, temporal anti-aliasing with upscalers
   (such as DLSS, FSR 3 or XeSS) and frame generation. If you would use one of
   them, say so in an issue.
@@ -140,8 +187,8 @@ Please open an issue with the **Bug report** template. It asks for:
 
 - your CPU, graphics card, driver version, Windows version and screen
   resolution/refresh rate;
-- your `TheDarkness.pc.toml` (settings) and what you did when the problem
-  happened;
+- your `TheDarkness.pc.toml` (settings, in `Saved Games\Estacado`) and what
+  you did when the problem happened;
 - the `logs` folder next to `TheDarkness.exe` (launcher: **About**, then
   **Logs**): `runtime_crash.log` and any `TheDarkness_fatal_*.dmp` and
   `TheDarkness_stall_*.dmp` files.
@@ -188,6 +235,13 @@ recompiles your own `default.xex`, builds the runtime and packages it.
 
 ## Credits
 
+- [djanice1980](https://github.com/djanice1980): the bloom fix at higher
+  internal resolutions (the cause in
+  [#11](https://github.com/invinceble55-wq/Estacado/issues/11), the fix in
+  [#15](https://github.com/invinceble55-wq/Estacado/pull/15) and
+  [Estacado-ReXGlue #1](https://github.com/invinceble55-wq/Estacado-ReXGlue/pull/1)),
+  the Quit game button, and the idea of keeping saves outside the program
+  folder ([#7](https://github.com/invinceble55-wq/Estacado/issues/7)).
 - The [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) and the
   [Xenia](https://github.com/xenia-project/xenia) project, whose work this
   port's system and graphics layer builds on.

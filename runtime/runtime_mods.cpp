@@ -183,7 +183,7 @@ RuntimeModConfiguration LoadRuntimeModConfiguration(
 
     toml::table manifest;
     try {
-        manifest = toml::parse_file(configuration.manifestPath.string());
+        manifest = toml::parse_file(configuration.manifestPath.u8string());
     } catch (const toml::parse_error& parseError) {
         throw std::runtime_error("invalid mod manifest: " +
                                  std::string(parseError.description()));

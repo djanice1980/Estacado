@@ -48,7 +48,7 @@ resolution_scale = 0
 # stay native). Not settings: the game adds them itself when a configuration
 # raises resolution_scale without them.
 draw_resolution_scale_threshold = 640
-draw_resolution_scale_native_grid_rules = "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26;B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:6:filter;B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:26:filter;B29F0BF45937C4C4:9F1D2D64E5F75924:0:1280:720:26:filter;B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:90:6:filter;B29F0BF45937C4C4:8F96D5C280D780BC:0:1280:720:26:filter;EC4685ADB9CCBC13:207D40E674A7C916:0:1280:720:26:filter_scaled:source=native;4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native"
+draw_resolution_scale_native_grid_rules = "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26;B29F0BF45937C4C4:69779AD07425E356:0:324:18:26;B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:6:filter;B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:26:filter;B29F0BF45937C4C4:9F1D2D64E5F75924:0:1280:720:26:filter;B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:90:6:filter;B29F0BF45937C4C4:8F96D5C280D780BC:0:1280:720:26:filter;EC4685ADB9CCBC13:207D40E674A7C916:0:1280:720:26:filter_scaled:source=native;4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native"
 native_resolve_region_tracking = true
 
 # Post-process AA: none (the original output), fxaa, fxaa_extreme or smaa
@@ -159,6 +159,10 @@ mouse_acceleration = 0.0
 # identity; 1.0 averages adjacent polls and has at most one poll of tail.
 mouse_smoothing = 0.0
 mouse_invert_y = false
+# Button prompts: "auto" shows the bound keys while you play with keyboard and
+# mouse and Xbox buttons again after controller input; "xbox" or "keyboard"
+# fixes one (applies live from the overlay).
+button_prompts = "auto"
 # "native" turns the camera with the title's own look command: raw mouse
 # counts, 1:1, no stick dead zone, ramp or turn cap. "stick" keeps the
 # older mouse-to-right-stick bridge. Changing it requires a restart.
@@ -173,6 +177,10 @@ controller_invert_y = false
 # Physical motor output only. 1.0 preserves the exact guest request; 0.0
 # disables rumble without changing guest input, packet state, or return codes.
 vibration_scale = 1.0
+# Key binding defaults of this file: 2 = jump on Space, use on E (0.9.1). A
+# configuration without it is from 0.9.0 (use on Space, jump on E); its first
+# start moves those two keys to the new defaults if they were never changed.
+bindings_revision = 2
 
 [input.controller_bind]
 # Optional physical XInput digital-button remapping. Keys are guest actions;
@@ -198,10 +206,10 @@ y = "y"
 [input.bind]
 # Rebindable physical keys. Mouse motion uses SDL's native relative mode while
 # focused/captured, avoiding desktop-edge clipping or cursor-warp deltas.
-a = "Space"
+a = "E"
 b = "Shift"
 x = "R"
-y = "E"
+y = "Space"
 left_trigger = "RMB"
 right_trigger = "LMB"
 left_shoulder = "Q"

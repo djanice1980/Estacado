@@ -24,11 +24,15 @@ justified while the D3D12 title path remains the authoritative validated path.
 - PC configuration, mod configuration, and original extracted content remain
   separately selected. The filesystem override system is deterministic and
   default-disabled.
-- Portable save/profile/achievement data still defaults beside the executable
-  under `runtime_data`. `--user-data-root <path>` now permits a launcher to
-  choose a Proton-prefix or other managed writable directory without changing
-  the current portable default. All guest save operations remain confined to
-  the selected root.
+- Since 0.9.1 save/profile/achievement data and the settings default to the
+  user's Saved Games folder (`Saved Games\Estacado`, inside the Proton prefix
+  on a Deck: `steamuser/Saved Games/Estacado`), with a one-time verified copy
+  from a 0.9.0 game folder (`runtime_data`). A folder set up on Windows and
+  copied to a Deck therefore starts without its Windows saves unless it holds
+  `portable.txt` (everything stays in the game folder, as in 0.9.0) or the
+  saves are copied into the prefix. `--user-data-root <path>` still selects a
+  managed writable directory (its settings file included). All guest save
+  operations remain confined to the selected root.
 - Graphics shader/pipeline cache storage prefers `%LOCALAPPDATA%`, which Proton
   maps inside its prefix, and retains the title/XEX/settings identity checks.
 - V40 provides `--print-paths` and `--list-presets` as read-only launcher

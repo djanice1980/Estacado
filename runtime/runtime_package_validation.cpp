@@ -69,7 +69,7 @@ RuntimePackageValidation ValidateRuntimePackage(
 
     toml::table manifest;
     try {
-        manifest = toml::parse_file(result.manifestPath.string());
+        manifest = toml::parse_file(result.manifestPath.u8string());
     } catch (const toml::parse_error& error) {
         result.errors.push_back(
             "package manifest TOML parse error: " +

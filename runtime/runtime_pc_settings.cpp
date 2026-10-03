@@ -20,6 +20,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <locale>
 #include <set>
@@ -46,8 +47,11 @@ bool ConfigPresent(const std::filesystem::path& path, const RuntimePcConfigSnaps
     std::error_code error;
     return std::filesystem::is_regular_file(path, error) && !error;
 }
+// The 0.9.1 key binding upgrade (runtime_pc_settings.h), defined below.
+RuntimeKeyBindingsUpgrade UpgradeKeyBindings(toml::table& config);
 toml::table ParseConfig(const std::filesystem::path& path, const RuntimePcConfigSnapshot* snapshot) {
-    return snapshot ? toml::parse(snapshot->contents(), snapshot->origin().string()) : toml::parse_file(path.string());
+    return snapshot ? toml::parse(snapshot->contents(), snapshot->origin().u8string())
+                    : toml::parse_file(path.u8string());
 }
 // Saved configurations are read by people too: settings with 0.01 steps
 // print as 0.91, not with full double precision (0.91000000000000003).
@@ -385,12 +389,26 @@ void ApplyPcConfigOverride(
 RuntimeLaunchOptions ParseRuntimeLaunchOptions(
     int argc, const char* const* argv,
     const std::filesystem::path& executableDirectory) {
+    return ParseRuntimeLaunchOptions(
+        argc, argv, executableDirectory,
+        RuntimeGameFolderUserDataLayout(executableDirectory,
+                                        RuntimeUserDataMode::kPortable, {}));
+}
+
+RuntimeLaunchOptions ParseRuntimeLaunchOptions(
+    int argc, const char* const* argv,
+    const std::filesystem::path& executableDirectory,
+    const RuntimeUserDataLayout& userData) {
     RuntimeLaunchOptions options{};
     options.xexPath = ResolveDefaultXexPath(executableDirectory);
-    options.pcConfigPath = executableDirectory / kDefaultPcConfigName;
-    options.pcConfigInstallPath = executableDirectory / kDefaultPcConfigName;
+    options.pcConfigPath = userData.configPath;
+    options.pcConfigInstallPath = userData.configPath;
     options.modsConfigPath = executableDirectory / kDefaultModsConfigName;
-    options.userDataRoot = executableDirectory / L"runtime_data";
+    options.userDataRoot = userData.root;
+    // Paths arrive as UTF-8 (main converts the wide command line).
+    const auto argumentPath = [](std::string_view text) {
+        return std::filesystem::u8path(text.begin(), text.end());
+    };
 
     bool hasXexPath = false;
     bool hasPcConfigPath = false;
@@ -589,7 +607,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
                 throw std::runtime_error(
                     "--pc-config requires one path and cannot be combined with --preset");
             }
-            options.pcConfigPath = argv[++index];
+            options.pcConfigPath = argumentPath(argv[++index]);
             hasPcConfigPath = true;
             options.pcConfigExplicit = true;
             continue;
@@ -612,7 +630,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
                 throw std::runtime_error(
                     "--mods-config requires exactly one non-empty path");
             }
-            options.modsConfigPath = argv[++index];
+            options.modsConfigPath = argumentPath(argv[++index]);
             hasModsConfigPath = true;
             continue;
         }
@@ -622,7 +640,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
                 throw std::runtime_error(
                     "--user-data-root requires exactly one non-empty path");
             }
-            options.userDataRoot = argv[++index];
+            options.userDataRoot = argumentPath(argv[++index]);
             hasUserDataRoot = true;
             continue;
         }
@@ -632,7 +650,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
                     "--mods-config requires exactly one non-empty path");
             }
             options.modsConfigPath =
-                std::string(argument.substr(kModsConfigPrefix.size()));
+                argumentPath(argument.substr(kModsConfigPrefix.size()));
             hasModsConfigPath = true;
             continue;
         }
@@ -643,7 +661,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
                     "--pc-config requires one path and cannot be combined with --preset");
             }
             options.pcConfigPath =
-                std::string(argument.substr(kPcConfigPrefix.size()));
+                argumentPath(argument.substr(kPcConfigPrefix.size()));
             hasPcConfigPath = true;
             options.pcConfigExplicit = true;
             continue;
@@ -685,7 +703,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
                     "--user-data-root requires exactly one non-empty path");
             }
             options.userDataRoot =
-                std::string(argument.substr(kUserDataRootPrefix.size()));
+                argumentPath(argument.substr(kUserDataRootPrefix.size()));
             hasUserDataRoot = true;
             continue;
         }
@@ -697,7 +715,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
             throw std::runtime_error(
                 "expected at most one positional XEX path");
         }
-        options.xexPath = std::string(argument);
+        options.xexPath = argumentPath(argument);
         hasXexPath = true;
     }
 
@@ -714,6 +732,15 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
         options.action != RuntimeLaunchAction::InstallPreset) {
         throw std::runtime_error(
             "--set-config is valid only with --install-preset");
+    }
+
+    // An explicit user data root keeps its own settings file.
+    options.userDataRootExplicit = hasUserDataRoot;
+    if (hasUserDataRoot) {
+        options.pcConfigInstallPath = options.userDataRoot / kDefaultPcConfigName;
+        if (!hasPreset && (!hasPcConfigPath || editsInstalledConfig)) {
+            options.pcConfigPath = options.pcConfigInstallPath;
+        }
     }
 
     options.xexPath = AbsoluteNormalized(options.xexPath);
@@ -843,7 +870,7 @@ std::vector<std::string> RuntimePcCapabilityLines() {
         "AUDIO_MASTER_VOLUME=0..1_host_pcm_output",
         "LANGUAGES=english,german,french,spanish,italian",
         "SUBTITLES=title_owned_interactive,cutscene,casual,fighting,darkness",
-        "PORTABLE_DATA=adjacent_runtime_data_default,user_data_root_override",
+        "USER_DATA=saved_games_default,portable_txt_game_folder,user_data_root_override,verified_copy_from_game_folder_once",
         "SCREENSHOT=F12_guest_output_bmp",
         "PERFORMANCE_OVERLAY=F3_guest_swap_fps_frame_time",
         "MOTION_BLUR=original,off_shader_pack",
@@ -1059,6 +1086,7 @@ RuntimePcConfigValidation ValidateRuntimePcConfig(
     validateInteger("present.safe_area_x", 0, 100);
     validateInteger("present.safe_area_y", 0, 100);
     validateBoolean("diagnostics.camera_state");
+    validateInteger("input.bindings_revision", 1, kRuntimeKeyBindingsRevision);
 
     // The settings utility and runtime consume this same versioned schema.
     // The runtime stays authoritative for type/range/choice validation.
@@ -1157,7 +1185,7 @@ RuntimePcConfigValidation ValidateRuntimePcConfig(
         "input.bind.rstick_press", "input.bind.dpad_up",
         "input.bind.dpad_down", "input.bind.dpad_left",
         "input.bind.dpad_right", "input.bind.back", "input.bind.start",
-        "input.bind.guide", "diagnostics.camera_state",
+        "input.bind.guide", "diagnostics.camera_state", "input.bindings_revision",
         // Pre-V376 field of view key (never changed the view); ignored.
         "camera.gameplay_fov"};
     for (const PcEditableSettingSpec& setting : PcEditableSettingsSchema()) {
@@ -1186,7 +1214,7 @@ std::vector<std::string> RuntimePcConfigValidationLines(
     const std::filesystem::path& path,
     const RuntimePcConfigValidation& validation) {
     std::vector<std::string> lines;
-    lines.push_back("PC_CONFIG_PATH=" + path.string());
+    lines.push_back("PC_CONFIG_PATH=" + path.u8string());
     lines.push_back("PC_CONFIG_EXISTS=" +
                     std::to_string(validation.exists ? 1 : 0));
     lines.push_back("PC_CONFIG_VALID=" +
@@ -1207,7 +1235,9 @@ std::vector<std::string> RuntimePcConfigValidationLines(
 std::map<std::string, std::string> RuntimePcConfigSettingValues(
     const std::filesystem::path& path) {
     std::map<std::string, std::string> values;
-    const toml::table config = toml::parse_file(path.string());
+    toml::table config = toml::parse_file(path.u8string());
+    // A 0.9.0 configuration shows the keys its next start or save gives it.
+    UpgradeKeyBindings(config);
     for (const PcEditableSettingSpec& setting : PcEditableSettingsSchema()) {
         const toml::node* node = FindConfigNode(config, setting.key);
         if (!node) continue;
@@ -1278,6 +1308,97 @@ std::string RuntimePcConfigWithShelvedFeatures(const std::string& contents,
     return serialized.str();
 }
 
+namespace {
+bool SameKeyName(std::string_view value, std::string_view name) {
+    return value.size() == name.size() &&
+           std::equal(value.begin(), value.end(), name.begin(), [](char a, char b) {
+               return std::tolower(static_cast<unsigned char>(a)) ==
+                      std::tolower(static_cast<unsigned char>(b));
+           });
+}
+
+// runtime_pc_settings.h: 0.9.0's A = Space / Y = E become E / Space unless
+// the player chose otherwise.
+RuntimeKeyBindingsUpgrade UpgradeKeyBindings(toml::table& config) {
+    RuntimeKeyBindingsUpgrade upgrade;
+    toml::table* input = config["input"].as_table();
+    toml::table* bind = input ? (*input)["bind"].as_table() : nullptr;
+    const auto revision = input ? (*input)["bindings_revision"].value<int64_t>() : std::nullopt;
+    if (revision && *revision >= kRuntimeKeyBindingsRevision) {
+        upgrade.outcome = "current";
+        return upgrade;
+    }
+    if (!bind) {
+        // Nothing saved: the new defaults apply. Left unmarked, so a
+        // configuration installed from a preset stays byte-identical to it.
+        upgrade.outcome = "no_bindings";
+        return upgrade;
+    }
+    const auto keyIs = [&](std::string_view action, std::string_view old) {
+        const toml::node* node = bind->get(action);
+        if (!node) return true;  // absent: the old default applied
+        const auto value = node->value<std::string>();
+        return value && SameKeyName(*value, old);
+    };
+    bool conflict = false;
+    for (const auto& [action, node] : *bind) {
+        if (action.str() == "a" || action.str() == "y") continue;
+        const auto value = node.value<std::string>();
+        if (value && (SameKeyName(*value, "Space") || SameKeyName(*value, "E"))) conflict = true;
+    }
+    if (keyIs("a", "Space") && keyIs("y", "E") && !conflict) {
+        bind->insert_or_assign("a", std::string("E"));
+        bind->insert_or_assign("y", std::string("Space"));
+        upgrade.swapped = true;
+        upgrade.outcome = "swapped";
+    } else {
+        // The player's own choice: an absent A or Y keeps its old default.
+        if (!bind->contains("a")) bind->insert("a", std::string("Space"));
+        if (!bind->contains("y")) bind->insert("y", std::string("E"));
+        upgrade.outcome = conflict ? "conflict" : "custom";
+    }
+    input->insert_or_assign("bindings_revision", kRuntimeKeyBindingsRevision);
+    upgrade.changed = true;
+    return upgrade;
+}
+
+// A configuration saved now with bindings: absent keys mean the new defaults.
+void MarkKeyBindingsCurrent(toml::table& config) {
+    toml::table* input = config["input"].as_table();
+    if (input && (*input)["bind"].as_table() && !input->contains("bindings_revision")) {
+        input->insert("bindings_revision", kRuntimeKeyBindingsRevision);
+    }
+}
+}  // namespace
+
+std::string RuntimePcConfigWithKeyBindingsUpgrade(const std::string& contents,
+                                                  const std::string& sourceName,
+                                                  RuntimeKeyBindingsUpgrade* result) {
+    toml::table config = toml::parse(contents, sourceName);
+    const RuntimeKeyBindingsUpgrade upgrade = UpgradeKeyBindings(config);
+    if (result) *result = upgrade;
+    if (!upgrade.changed) return contents;
+    std::ostringstream serialized;
+    serialized.imbue(std::locale::classic());
+    serialized << PcConfigFormatter(config) << '\n';
+    return serialized.str();
+}
+
+std::string RuntimePcConfigWithProgramCacheSource(const std::string& contents,
+                                                  const std::filesystem::path& programCache) {
+    if (programCache.empty()) return contents;
+    // A TOML basic string; top-level keys precede every table.
+    const auto path = programCache.u8string();  // UTF-8
+    std::string line = "gpu_program_cache_source = \"";
+    for (const auto c : path) {
+        if (c == '\\' || c == '"') line.push_back('\\');
+        line.push_back(char(c));
+    }
+    line += "\"\n";
+    const bool bom = contents.rfind("\xEF\xBB\xBF", 0) == 0;
+    return bom ? contents.substr(0, 3) + line + contents.substr(3) : line + contents;
+}
+
 std::string RuntimePcConfigWithTitleScaleRequirements(const std::string& contents,
                                                       const std::string& sourceName,
                                                       bool* changed) {
@@ -1286,9 +1407,9 @@ std::string RuntimePcConfigWithTitleScaleRequirements(const std::string& content
     const auto scale = config["resolution_scale"].value<int64_t>();
     if (!scale || *scale <= 1) return contents;
     const bool hasThreshold = config.contains("draw_resolution_scale_threshold");
-    const bool legacyRules =
-        config["draw_resolution_scale_native_grid_rules"].value<std::string>() ==
-        std::string(kLegacyTitleNativeGridRules);
+    const auto rules = config["draw_resolution_scale_native_grid_rules"].value<std::string>();
+    const bool legacyRules = rules && (*rules == kLegacyTitleNativeGridRules ||
+                                       *rules == kPreviousTitleNativeGridRules);
     const bool hasRules = config.contains("draw_resolution_scale_native_grid_rules") && !legacyRules;
     const bool hasTracking = config.contains("native_resolve_region_tracking");
     if (hasThreshold && hasRules && hasTracking) return contents;
@@ -1322,7 +1443,10 @@ std::vector<std::string> RuntimePcConfigInspectionLines(
         return lines;
     }
 
-    const toml::table config = toml::parse_file(path.string());
+    toml::table config = toml::parse_file(path.u8string());
+    // A 0.9.0 configuration with saved keys shows the keys its next start or
+    // save gives it (the launcher reads its values from here).
+    UpgradeKeyBindings(config);
     std::vector<std::string> leaves;
     std::vector<std::string> unsupportedTypes;
     CollectConfigLeaves(config, {}, leaves, unsupportedTypes);
@@ -1563,6 +1687,8 @@ RuntimePcConfigInstallResult InstallRuntimePcPreset(
     }
 
     const std::filesystem::path parent = destination.parent_path();
+    // The per-user folder (Saved Games) exists only once something is saved.
+    std::filesystem::create_directories(parent, filesystemError);
     const DWORD parentAttributes = GetFileAttributesW(parent.c_str());
     if (parentAttributes == INVALID_FILE_ATTRIBUTES ||
         !(parentAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
@@ -1678,56 +1804,20 @@ RuntimePcConfigInstallResult InstallRuntimePcPreset(
     return {source, destination, destinationExists, 0};
 }
 
-RuntimePcConfigInstallResult InstallRuntimePcPresetWithOverrides(
-    const std::filesystem::path& sourcePath,
-    const std::filesystem::path& destinationPath,
-    const std::vector<RuntimeLaunchOptions::PcConfigOverride>& overrides,
-    bool overwrite) {
-    if (overrides.empty()) {
-        return InstallRuntimePcPreset(sourcePath, destinationPath, overwrite);
-    }
-
-    const std::filesystem::path source = AbsoluteNormalized(sourcePath);
-    const DWORD sourceAttributes = GetFileAttributesW(source.c_str());
-    if (sourceAttributes == INVALID_FILE_ATTRIBUTES ||
-        (sourceAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
-        (sourceAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
-        throw std::runtime_error(
-            "source preset must be a regular non-reparse file");
-    }
-    const RuntimePcConfigValidation sourceValidation =
-        ValidateRuntimePcConfig(source, true);
-    if (!sourceValidation.valid) {
-        throw std::runtime_error(
-            "source preset is invalid: " +
-            (sourceValidation.errors.empty()
-                 ? std::string("unknown validation error")
-                 : sourceValidation.errors.front()));
-    }
-
-    toml::table config = toml::parse_file(source.string());
-    std::set<std::string> seen;
-    for (const auto& override : overrides) {
-        if (!seen.insert(override.key).second) {
-            throw std::runtime_error(
-                "PC setting override key was specified more than once: " +
-                override.key);
-        }
-        ApplyPcConfigOverride(config, override);
-    }
-
-    std::ostringstream serialized;
-    serialized.imbue(std::locale::classic());
-    serialized << PcConfigFormatter(config) << '\n';
-    const std::string bytes = serialized.str();
+namespace {
+// Stages serialized configuration bytes beside the destination and installs
+// them through InstallRuntimePcPreset (validated, flushed, atomic).
+RuntimePcConfigInstallResult InstallSerializedPcConfig(
+    const std::string& bytes, const std::filesystem::path& destinationPath, bool overwrite) {
     if (bytes.empty() || bytes.size() > 1024 * 1024) {
         throw std::runtime_error(
             "customized PC configuration size is invalid");
     }
-
     const std::filesystem::path destination =
         AbsoluteNormalized(destinationPath);
     std::filesystem::path stagedPath;
+    std::error_code directoryError;
+    std::filesystem::create_directories(destination.parent_path(), directoryError);
     HANDLE staged = INVALID_HANDLE_VALUE;
     for (uint32_t attempt = 0; attempt < 16; ++attempt) {
         stagedPath = destination;
@@ -1768,8 +1858,6 @@ RuntimePcConfigInstallResult InstallRuntimePcPresetWithOverrides(
 
         RuntimePcConfigInstallResult result = InstallRuntimePcPreset(
             stagedPath, destination, overwrite);
-        result.sourcePath = source;
-        result.overrideCount = overrides.size();
         DeleteFileW(stagedPath.c_str());
         return result;
     } catch (...) {
@@ -1778,13 +1866,97 @@ RuntimePcConfigInstallResult InstallRuntimePcPresetWithOverrides(
         throw;
     }
 }
+}  // namespace
+
+RuntimePcConfigInstallResult InstallRuntimePcPresetWithOverrides(
+    const std::filesystem::path& sourcePath,
+    const std::filesystem::path& destinationPath,
+    const std::vector<RuntimeLaunchOptions::PcConfigOverride>& overrides,
+    bool overwrite) {
+    if (overrides.empty()) {
+        return InstallRuntimePcPreset(sourcePath, destinationPath, overwrite);
+    }
+
+    const std::filesystem::path source = AbsoluteNormalized(sourcePath);
+    const DWORD sourceAttributes = GetFileAttributesW(source.c_str());
+    if (sourceAttributes == INVALID_FILE_ATTRIBUTES ||
+        (sourceAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        (sourceAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        throw std::runtime_error(
+            "source preset must be a regular non-reparse file");
+    }
+    const RuntimePcConfigValidation sourceValidation =
+        ValidateRuntimePcConfig(source, true);
+    if (!sourceValidation.valid) {
+        throw std::runtime_error(
+            "source preset is invalid: " +
+            (sourceValidation.errors.empty()
+                 ? std::string("unknown validation error")
+                 : sourceValidation.errors.front()));
+    }
+
+    toml::table config = toml::parse_file(source.u8string());
+    // An edit of a 0.9.0 configuration upgrades its keys like a game start
+    // (before the overrides, so a key the player sets now wins); saved
+    // bindings are marked current.
+    UpgradeKeyBindings(config);
+    std::set<std::string> seen;
+    for (const auto& override : overrides) {
+        if (!seen.insert(override.key).second) {
+            throw std::runtime_error(
+                "PC setting override key was specified more than once: " +
+                override.key);
+        }
+        ApplyPcConfigOverride(config, override);
+    }
+    MarkKeyBindingsCurrent(config);
+
+    std::ostringstream serialized;
+    serialized.imbue(std::locale::classic());
+    serialized << PcConfigFormatter(config) << '\n';
+    RuntimePcConfigInstallResult result =
+        InstallSerializedPcConfig(serialized.str(), destinationPath, overwrite);
+    result.sourcePath = source;
+    result.overrideCount = overrides.size();
+    return result;
+}
+
+RuntimeKeyBindingsUpgrade RuntimeUpgradePcConfigFileKeyBindings(
+    const std::filesystem::path& path, std::string* error) {
+    RuntimeKeyBindingsUpgrade upgrade;
+    if (error) error->clear();
+    try {
+        const std::filesystem::path file = AbsoluteNormalized(path);
+        const DWORD attributes = GetFileAttributesW(file.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY) ||
+            (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+            upgrade.outcome = "no_file";
+            return upgrade;
+        }
+        std::string contents;
+        {
+            // Closed before the install replaces the file.
+            std::ifstream input(file, std::ios::binary);
+            if (!input) throw std::runtime_error("unable to read the configuration");
+            contents.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        }
+        const std::string upgraded =
+            RuntimePcConfigWithKeyBindingsUpgrade(contents, file.u8string(), &upgrade);
+        if (upgrade.changed) InstallSerializedPcConfig(upgraded, file, true);
+    } catch (const std::exception& exception) {
+        upgrade = {};
+        upgrade.outcome = "failed";
+        if (error) *error = exception.what();
+    }
+    return upgrade;
+}
 
 std::vector<std::string> RuntimePcConfigInstallLines(
     const RuntimePcConfigInstallResult& result) {
     return {
-        "PC_CONFIG_INSTALL_SOURCE=" + SingleLine(result.sourcePath.string()),
+        "PC_CONFIG_INSTALL_SOURCE=" + SingleLine(result.sourcePath.u8string()),
         "PC_CONFIG_INSTALL_DESTINATION=" +
-            SingleLine(result.destinationPath.string()),
+            SingleLine(result.destinationPath.u8string()),
         "PC_CONFIG_INSTALL_OVERWROTE=" +
             std::to_string(result.overwritten ? 1 : 0),
         "PC_CONFIG_INSTALL_OVERRIDE_COUNT=" +
@@ -1798,9 +1970,9 @@ std::vector<std::string> RuntimePcConfigInstallErrorLines(
     const std::filesystem::path& destinationPath, const std::string& error) {
     return {
         "PC_CONFIG_INSTALL_SOURCE=" +
-            SingleLine(AbsoluteNormalized(sourcePath).string()),
+            SingleLine(AbsoluteNormalized(sourcePath).u8string()),
         "PC_CONFIG_INSTALL_DESTINATION=" +
-            SingleLine(AbsoluteNormalized(destinationPath).string()),
+            SingleLine(AbsoluteNormalized(destinationPath).u8string()),
         "PC_CONFIG_INSTALL_VALID=0",
         "PC_CONFIG_INSTALL_ERROR=" + SingleLine(error),
     };

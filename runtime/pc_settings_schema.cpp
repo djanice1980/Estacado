@@ -129,6 +129,12 @@ const std::vector<PcEditableSettingSpec>& PcEditableSettingsSchema() {
          PcSettingEditorKind::Choice, 0.0, 0.0, 0.0,
          {{"F1", L"F1"}, {"F2", L"F2"}, {"F4", L"F4"}, {"F5", L"F5"},
           {"F6", L"F6"}, {"F7", L"F7"}, {"F8", L"F8"}, {"F11", L"F11"}}},
+        // 0.9.1: prompts follow the device of the latest input (ReXGlue
+        // prompt_icons.h, runtime_button_prompts.h).
+        {"input.button_prompts", L"Controls", L"Button prompts",
+         PcSettingEditorKind::Choice, 0.0, 0.0, 0.0,
+         {{"auto", L"Automatic"}, {"xbox", L"Xbox buttons"},
+          {"keyboard", L"Keyboard keys"}}},
         // Keyboard/mouse bindings of the controller the game sees (its
         // prompts show Xbox buttons). Values: rex::ui::settings binding names.
         {"input.bind.lstick_up", L"Key bindings", L"Move forward (left stick up)",
@@ -139,37 +145,37 @@ const std::vector<PcEditableSettingSpec>& PcEditableSettingsSchema() {
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
         {"input.bind.lstick_right", L"Key bindings", L"Move right (left stick right)",
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
-        {"input.bind.a", L"Key bindings", L"A button", PcSettingEditorKind::Key,
+        {"input.bind.a", L"Key bindings", L"A button: use", PcSettingEditorKind::Key,
          0.0, 0.0, 0.0, {}},
-        {"input.bind.b", L"Key bindings", L"B button", PcSettingEditorKind::Key,
+        {"input.bind.b", L"Key bindings", L"B button: reload", PcSettingEditorKind::Key,
          0.0, 0.0, 0.0, {}},
-        {"input.bind.x", L"Key bindings", L"X button", PcSettingEditorKind::Key,
+        {"input.bind.x", L"Key bindings", L"X button: redirect", PcSettingEditorKind::Key,
          0.0, 0.0, 0.0, {}},
-        {"input.bind.y", L"Key bindings", L"Y button", PcSettingEditorKind::Key,
+        {"input.bind.y", L"Key bindings", L"Y button: jump", PcSettingEditorKind::Key,
          0.0, 0.0, 0.0, {}},
-        {"input.bind.right_trigger", L"Key bindings", L"Right trigger (RT)",
+        {"input.bind.right_trigger", L"Key bindings", L"Right trigger (RT): fire right hand",
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
-        {"input.bind.left_trigger", L"Key bindings", L"Left trigger (LT)",
+        {"input.bind.left_trigger", L"Key bindings", L"Left trigger (LT): fire left hand",
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
-        {"input.bind.right_shoulder", L"Key bindings", L"Right bumper (RB)",
+        {"input.bind.right_shoulder", L"Key bindings", L"Right bumper (RB): Darkness power",
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
-        {"input.bind.left_shoulder", L"Key bindings", L"Left bumper (LB)",
+        {"input.bind.left_shoulder", L"Key bindings", L"Left bumper (LB): manifest the Darkness",
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
-        {"input.bind.lstick_press", L"Key bindings", L"Left stick click (LS)",
+        {"input.bind.lstick_press", L"Key bindings", L"Left stick click (LS): crouch",
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
-        {"input.bind.rstick_press", L"Key bindings", L"Right stick click (RS)",
+        {"input.bind.rstick_press", L"Key bindings", L"Right stick click (RS): aim",
          PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
-        {"input.bind.dpad_up", L"Key bindings", L"D-pad up", PcSettingEditorKind::Key,
+        {"input.bind.dpad_up", L"Key bindings", L"D-pad up: Darkness powers",
+         PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
+        {"input.bind.dpad_down", L"Key bindings", L"D-pad down: Darkness powers",
+         PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
+        {"input.bind.dpad_left", L"Key bindings", L"D-pad left: weapons",
+         PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
+        {"input.bind.dpad_right", L"Key bindings", L"D-pad right: weapons",
+         PcSettingEditorKind::Key, 0.0, 0.0, 0.0, {}},
+        {"input.bind.back", L"Key bindings", L"Back button: journal", PcSettingEditorKind::Key,
          0.0, 0.0, 0.0, {}},
-        {"input.bind.dpad_down", L"Key bindings", L"D-pad down", PcSettingEditorKind::Key,
-         0.0, 0.0, 0.0, {}},
-        {"input.bind.dpad_left", L"Key bindings", L"D-pad left", PcSettingEditorKind::Key,
-         0.0, 0.0, 0.0, {}},
-        {"input.bind.dpad_right", L"Key bindings", L"D-pad right", PcSettingEditorKind::Key,
-         0.0, 0.0, 0.0, {}},
-        {"input.bind.back", L"Key bindings", L"Back button", PcSettingEditorKind::Key,
-         0.0, 0.0, 0.0, {}},
-        {"input.bind.start", L"Key bindings", L"Start button", PcSettingEditorKind::Key,
+        {"input.bind.start", L"Key bindings", L"Start button: pause", PcSettingEditorKind::Key,
          0.0, 0.0, 0.0, {}},
         {"input.bind.guide", L"Key bindings", L"Guide button", PcSettingEditorKind::Key,
          0.0, 0.0, 0.0, {}},
@@ -293,6 +299,11 @@ const PcSettingPresentation& PcSettingPresentationFor(std::string_view key) {
         {"input.vibration_scale", {L"Controller rumble strength.", {}, {}, false, true}},
         {"input.overlay_key",
          {L"Opens these settings during play (Esc also closes them).", {}, {}, false, false}},
+        {"input.button_prompts",
+         {L"The buttons the game's prompts show. Automatic shows the keys you bound while you "
+          L"play with keyboard and mouse, and Xbox buttons again as soon as you use a "
+          L"controller.",
+          {}, {}, false, true}},
         {"audio.master_volume", {L"Overall game volume.", {}, {}, false, true}},
         {"general.language",
          {L"Language of the game's text and speech and of these settings. Automatic follows "
@@ -309,7 +320,8 @@ const PcSettingPresentation& PcSettingPresentationFor(std::string_view key) {
     // start (the input thread reads them; no live string swap).
     static const PcSettingPresentation firstBinding{
         L"The game's prompts show Xbox buttons; these are the keys and mouse buttons that "
-        L"press them. Click a binding, then press a key or mouse button (F1-F12 are "
+        L"press them, each named with its action in the game's default controller "
+        L"layout. Click a binding, then press a key or mouse button (F1-F12 are "
         L"reserved).",
         "input.keyboard_mouse", "true", false, false};
     static const PcSettingPresentation binding{{}, "input.keyboard_mouse", "true", false, false};

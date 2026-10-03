@@ -2441,10 +2441,12 @@ PPC_FUNC(__imp__NtCreateFile) {
     static std::atomic<bool> capturedGuiPrecacheOpen{};
     static std::atomic<bool> capturedTextFontMiss{};
     if (handle && path == "d:\\content\\xdf\\guiprecache.xdf" &&
+        RuntimeMilestoneSnapshotsEnabled() &&
         !capturedGuiPrecacheOpen.exchange(true, std::memory_order_relaxed)) {
         RuntimeWriteCurrentThreadSnapshot("guiprecache-xdf-open");
     }
     if (!handle && path == "d:\\content\\fonts\\text.xfc" &&
+        RuntimeMilestoneSnapshotsEnabled() &&
         !capturedTextFontMiss.exchange(true, std::memory_order_relaxed)) {
         RuntimeWriteCurrentThreadSnapshot("text-xfc-loose-open-miss");
     }

@@ -15,6 +15,8 @@
 // Where reports go and the system dbghelp's MiniDumpWriteDump (main's
 // PrepareCrashEvidence resolves both before any guest code runs).
 void RuntimeFatalConfigure(const wchar_t* crashDirectory, void* miniDumpWriteDump) noexcept;
+// That folder ("<executable directory>\logs\"; empty before the configuration).
+const wchar_t* RuntimeFatalDirectory() noexcept;
 // Extra context for the report (import name, registers, the title's message).
 void RuntimeFatalRecordDetail(const std::string& detail) noexcept;
 // A minidump of the process now, once per process (later calls do nothing).

@@ -1,5 +1,6 @@
 // In-game text from a local language pack: see runtime_language_pack.h.
 #include "runtime_language_pack.h"
+#include "runtime_button_prompts.h"
 
 #include "runtime_language_text.h"
 #include "runtime_memory_access.h"
@@ -13,7 +14,10 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <mutex>
+#include <optional>
 #include <sstream>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -272,7 +276,16 @@ void ApplyRuntimeLanguagePackImagePatches(uint8_t* base) {
 // (sub_821F8728) from a copy of the text on the guest stack below this
 // frame.
 PPC_FUNC(sub_82787CC0) {
-    const std::u16string* text = g_active ? FindString(base, ctx.r4.u32) : nullptr;
+    // Keyboard button prompts (runtime_button_prompts.h): the title's
+    // controller prompt templates and button names, while keyboard prompts
+    // are wanted.
+    std::optional<std::u16string> prompt;
+    if (PPC_LOAD_U8(ctx.r4.u32) == 'C') {
+        const std::string key = ReadKey(base, ctx.r4.u32);
+        if (!key.empty()) prompt = RuntimeKeyboardPromptText(key);
+    }
+    const std::u16string* text =
+        prompt ? &*prompt : (g_active ? FindString(base, ctx.r4.u32) : nullptr);
     if (!text) {
         __imp__sub_82787CC0(ctx, base);
         return;
@@ -368,11 +381,59 @@ PPC_FUNC(sub_8234C900) {
     __imp__sub_8234C900(ctx, base);
 }
 
+namespace {
+// Developer trace (DARKNESS_TEXT_TRACE=<file>): every distinct drawn line
+// with formatting codes, the codes escaped (button prompt research, 0.9.1).
+std::atomic<int> g_text_trace_state{-1};  // -1 unknown, 0 off, 1 on
+std::mutex g_text_trace_mutex;
+std::ofstream g_text_trace;
+std::unordered_set<std::u16string> g_text_trace_seen;
+
+void TraceDrawnLine(uint8_t* base, uint32_t textAddress) {
+    int state = g_text_trace_state.load(std::memory_order_relaxed);
+    if (state < 0) {
+        std::lock_guard lock(g_text_trace_mutex);
+        state = g_text_trace_state.load(std::memory_order_relaxed);
+        if (state < 0) {
+            const char* path = std::getenv("DARKNESS_TEXT_TRACE");
+            if (path && *path) g_text_trace.open(path, std::ios::binary | std::ios::trunc);
+            state = g_text_trace.is_open() ? 1 : 0;
+            g_text_trace_state.store(state, std::memory_order_relaxed);
+        }
+    }
+    if (!state || !textAddress) return;
+    std::u16string line;
+    bool codes = false;
+    for (size_t i = 0; i < kMaximumLine; ++i) {
+        const char16_t unit = char16_t(PPC_LOAD_U16(textAddress + uint32_t(i * 2)));
+        if (!unit) break;
+        codes = codes || unit == darkness::language_text::kCodeMarker || unit < 0x20 || unit > 0xFF;
+        line.push_back(unit);
+    }
+    if (!codes) return;
+    std::lock_guard lock(g_text_trace_mutex);
+    if (g_text_trace_seen.size() >= 4096 || !g_text_trace_seen.insert(line).second) return;
+    std::ostringstream out;
+    for (const char16_t unit : line) {
+        if (unit >= 0x20 && unit < 0x7F) {
+            out << char(unit);
+        } else {
+            out << "<" << std::hex << unsigned(unit) << std::dec << ">";
+        }
+    }
+    g_text_trace << out.str() << '\n';
+    g_text_trace.flush();
+}
+}  // namespace
+
 // Font Write loop: draws one UTF-16 line left to right. A line with
 // right-to-left letters is drawn from a visual-order copy: the stack
 // arguments are copied below this frame with the text argument pointing at
 // the copy, so the title's buffers are never modified.
 PPC_FUNC(sub_8238BD10) {
+    if (g_text_trace_state.load(std::memory_order_relaxed) != 0) {
+        TraceDrawnLine(base, PPC_LOAD_U32(ctx.r1.u32 + kWriteTextArgument));
+    }
     if (!g_active) {
         __imp__sub_8238BD10(ctx, base);
         return;

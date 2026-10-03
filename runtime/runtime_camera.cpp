@@ -18,7 +18,9 @@
 #include "ppc_recomp_shared.h"
 
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +37,15 @@ namespace {
 std::atomic<float> gameplay_fov_degrees{kOriginalGameplayFovDegrees};
 std::atomic<double> view_fov_tangent_scale{1.0};
 std::atomic<bool> view_fov_logged{};
+// #6: per-frame FOV interpolation (RuntimeFovSmoother). Off in 0.9.1 until
+// it is verified on an actual zoom (0.9.2); DARKNESS_FOV_SMOOTHING=1 turns
+// it on (developer checks).
+std::atomic<bool> view_fov_smoothing{false};
+// Developer trace of the per-frame FOV (DARKNESS_FOV_TRACE=<file>), bounded.
+std::atomic<bool> view_fov_trace_enabled{};
+std::mutex view_fov_trace_mutex;
+std::ofstream view_fov_trace;      // view_fov_trace_mutex
+uint32_t view_fov_trace_lines = 0;  // view_fov_trace_mutex
 std::atomic<bool> trace_camera_state{};
 std::atomic<uint32_t> camera_trace_sequence{};
 std::atomic<uint32_t> frame_viewport_trace_sequence{};
@@ -897,6 +908,12 @@ void RuntimeScaleClientViewFov(PPCContext& context, uint8_t* base) noexcept {
     // (runtime_camera_policy.h). The entry macro still calls in for the
     // write-back (0x8249A1EC, runtime_function_trace.h): a no-op since V391.
     thread_local RuntimeViewFovScaling last;
+    // One smoother per client view (the copy's destination, client + 2112).
+    struct FovSmoothing {
+        uint32_t client_view = 0;
+        RuntimeFovSmoother smoother;
+    };
+    thread_local FovSmoothing smoothing[4];
     const uint32_t caller = uint32_t(context.lr);
     const uint32_t view = context.r4.u32;
     if (!view || view > UINT32_MAX - kClientViewBytes) return;
@@ -904,10 +921,37 @@ void RuntimeScaleClientViewFov(PPCContext& context, uint8_t* base) noexcept {
     const uint32_t title_bits =
         RuntimeViewFovTitleBits(last, PPC_LOAD_U32(view + kClientViewFovOffset));
     const float fov = FloatFromBits(title_bits);
+    float shown = fov;
+    const double now = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (view_fov_smoothing.load(std::memory_order_relaxed)) {
+        const uint32_t client_view = context.r3.u32;
+        FovSmoothing* slot = nullptr;
+        for (FovSmoothing& candidate : smoothing) {
+            if (candidate.client_view == client_view) slot = &candidate;
+        }
+        for (FovSmoothing& candidate : smoothing) {
+            if (!slot && !candidate.client_view) slot = &candidate;
+        }
+        if (!slot) {
+            slot = &smoothing[0];
+            *slot = {};
+        }
+        slot->client_view = client_view;
+        shown = slot->smoother.Next(fov, now);
+    }
     const float scaled =
-        RuntimeScaledViewFov(fov, view_fov_tangent_scale.load(std::memory_order_relaxed));
+        RuntimeScaledViewFov(shown, view_fov_tangent_scale.load(std::memory_order_relaxed));
     last = {title_bits, FloatBits(scaled)};
     PPC_STORE_U32(view + kClientViewFovOffset, last.scaled_bits);
+    if (view_fov_trace_enabled.load(std::memory_order_relaxed)) {
+        std::lock_guard lock(view_fov_trace_mutex);
+        if (++view_fov_trace_lines >= 100000) view_fov_trace_enabled = false;
+        view_fov_trace << std::fixed << std::setprecision(6) << now << ',' << std::hex
+                       << context.r3.u32 << std::dec << ',' << fov << ',' << shown << ','
+                       << scaled << '\n';
+        if (!(view_fov_trace_lines % 256)) view_fov_trace.flush();
+    }
     if (scaled == fov) return;
     if (!view_fov_logged.exchange(true, std::memory_order_relaxed)) {
         std::cout << "PC_GAMEPLAY_FOV_APPLIED view=0x" << std::hex << view << std::dec
@@ -937,7 +981,18 @@ void ConfigureRuntimeCamera(float configured_fov_degrees,
     }
     view_fov_tangent_scale.store(tangent_scale, std::memory_order_relaxed);
     view_fov_logged.store(false, std::memory_order_relaxed);
-    g_runtime_view_fov_active.store(tangent_scale != 1.0 ? 1u : 0u, std::memory_order_release);
+    const char* smoothing_env = std::getenv("DARKNESS_FOV_SMOOTHING");
+    const bool smoothing = smoothing_env && smoothing_env[0] == '1';
+    view_fov_smoothing.store(smoothing, std::memory_order_relaxed);
+    if (const char* trace = std::getenv("DARKNESS_FOV_TRACE"); trace && *trace) {
+        std::lock_guard lock(view_fov_trace_mutex);
+        view_fov_trace.open(std::filesystem::u8path(trace), std::ios::trunc);
+        view_fov_trace << "seconds,client_view,title_fov,shown_fov,written_fov\n";
+        view_fov_trace_lines = 0;
+        view_fov_trace_enabled = view_fov_trace.is_open();
+    }
+    g_runtime_view_fov_active.store(tangent_scale != 1.0 || smoothing ? 1u : 0u,
+                                    std::memory_order_release);
     trace_camera_state.store(enable_camera_trace, std::memory_order_release);
     RuntimeSetEntrySlowBit(kRuntimeEntrySlowCameraTrace, enable_camera_trace);
     camera_trace_sequence.store(0, std::memory_order_relaxed);

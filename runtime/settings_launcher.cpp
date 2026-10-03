@@ -33,6 +33,7 @@
 #include "runtime_game_setup.h"
 #include "runtime_language_install.h"
 #include "runtime_gpu_calibration.h"
+#include "runtime_user_data.h"
 #include "runtime_single_instance.h"
 
 #include <rex/ui/rtl_text.h>
@@ -45,6 +46,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -137,10 +139,16 @@ struct Launcher {
     // AA with DARKNESS_EXPERIMENTAL) and the ones the schema was built with.
     PcSettingsOffer offer;
     PcSettingsOffer schemaOffer;
+    // Saves and settings (runtime_user_data.h): where they are, and what this
+    // start copied from the game folder (shown once).
+    RuntimeUserDataLayout userData;
+    std::string userDataNotice;
+    bool userDataNoticeError = false;
     // The game files the runtime will use (first-run setup when not ready).
     setup::GameStatus gameStatus = setup::GameStatus::kMissing;
     std::filesystem::path gameFolder;
     std::string gameSha256;
+    setup::XexIdentity gameIdentity;
     std::unique_ptr<GameSetupJob> job = std::make_unique<GameSetupJob>();
     // About: credits, licence texts, crash reports.
     bool openAbout = false;
@@ -522,13 +530,14 @@ void CheckGame(Launcher& app) {
     const setup::GameCheck check = setup::CheckGameFolder(app.gameFolder);
     app.gameStatus = check.status;
     app.gameSha256 = check.sha256;
+    app.gameIdentity = check.identity;
 }
 
 // A file (disc image) or folder picked with the Windows dialog.
-enum class Pick { kGameFolder, kDiscImage, kLanguagePack };
+enum class Pick { kGameFolder, kDiscImage, kLanguagePack, kSavesFolder };
 
 std::optional<std::filesystem::path> PickPath(const Launcher& app, Pick pick) {
-    const bool folder = pick == Pick::kGameFolder;
+    const bool folder = pick == Pick::kGameFolder || pick == Pick::kSavesFolder;
     const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     std::optional<std::filesystem::path> picked;
     IFileOpenDialog* dialog = nullptr;
@@ -549,9 +558,11 @@ std::optional<std::filesystem::path> PickPath(const Launcher& app, Pick pick) {
         }
         dialog->SetOptions(options);
         const std::wstring title = Utf8ToWide(
-            Tr(app, folder                     ? "Choose the game folder (it contains default.xex)"
-                    : pick == Pick::kDiscImage ? "Choose the disc image"
-                                               : "Choose the language pack (.zip)"));
+            Tr(app, pick == Pick::kGameFolder    ? "Choose the game folder (it contains default.xex)"
+                    : pick == Pick::kSavesFolder ? "Choose the folder of the older version (it "
+                                                   "contains TheDarkness.exe)"
+                    : pick == Pick::kDiscImage   ? "Choose the disc image"
+                                                 : "Choose the language pack (.zip)"));
         dialog->SetTitle(title.c_str());
         if (SUCCEEDED(dialog->Show(GetActiveWindow()))) {
             IShellItem* item = nullptr;
@@ -588,6 +599,31 @@ void StartJob(GameSetupJob& job, std::function<void(GameSetupJob&)> work) {
     job.worker = std::thread([&job, work = std::move(work)]() { work(job); });
 }
 
+// The detailed version report (names, sizes and hashes; no game data) in
+// the logs folder, for a bug report if the player wants to attach it.
+std::string WriteVersionReport(const std::filesystem::path& directory,
+                               const setup::XexIdentity& identity, const std::string& source) {
+    const std::filesystem::path logs = directory / L"logs";
+    std::error_code error;
+    std::filesystem::create_directories(logs, error);
+    const std::filesystem::path report = logs / L"game_version_report.txt";
+    std::ofstream out(report, std::ios::binary | std::ios::trunc);
+    out << setup::XexIdentityReport(identity, source);
+    out.close();
+    return out ? "A detailed report is in logs\\game_version_report.txt; you can attach it to a "
+                 "bug report. Never upload game files."
+               : std::string();
+}
+
+// Why a copy of the game cannot be used, for the setup panel.
+std::string DifferentVersionText(const setup::XexIdentity& identity) {
+    return identity.match == setup::XexMatch::kNotReadable
+               ? setup::XexMatchText(identity)
+               : "This version of The Darkness runs different code, which this release cannot "
+                 "run yet. Supported: the Xbox 360 USA/Europe disc and copies with the same code "
+                 "(for example localised releases).";
+}
+
 // A folder with the extracted game: checked, then remembered.
 void SetUpFromFolder(Launcher& app, std::filesystem::path folder) {
     const std::filesystem::path directory = app.directory;
@@ -601,12 +637,14 @@ void SetUpFromFolder(Launcher& app, std::filesystem::path folder) {
             case setup::GameStatus::kUnreadable:
                 return FinishJob(job, false, "Unable to read default.xex.");
             case setup::GameStatus::kWrongVersion:
-                return FinishJob(job, false,
-                                 "This is a different version of the game. Supported: The Darkness, "
-                                 "Xbox 360, USA/Europe disc (title 545407EE).",
-                                 "default.xex SHA-256 " + check.sha256);
+                return FinishJob(job, false, DifferentVersionText(check.identity),
+                                 WriteVersionReport(directory, check.identity,
+                                                    (folder / L"default.xex").u8string()));
             case setup::GameStatus::kOk:
                 break;
+        }
+        if (check.identity.match == setup::XexMatch::kSameCode) {
+            WriteVersionReport(directory, check.identity, (folder / L"default.xex").u8string());
         }
         std::string error;
         if (!setup::WriteGameLocation(directory, folder, &error)) {
@@ -627,11 +665,14 @@ void SetUpFromImage(Launcher& app, std::filesystem::path image) {
         if (info.xexSha256.empty()) {
             return FinishJob(job, false, "The disc image has no default.xex.");
         }
-        if (info.xexSha256 != setup::kSupportedXexSha256) {
-            return FinishJob(job, false,
-                             "This is a different version of the game. Supported: The Darkness, "
-                             "Xbox 360, USA/Europe disc (title 545407EE).",
-                             "default.xex SHA-256 " + info.xexSha256);
+        if (info.xex.match != setup::XexMatch::kSupported &&
+            info.xex.match != setup::XexMatch::kSameCode) {
+            return FinishJob(job, false, DifferentVersionText(info.xex),
+                             WriteVersionReport(directory, info.xex,
+                                                image.u8string() + " (default.xex)"));
+        }
+        if (info.xex.match == setup::XexMatch::kSameCode) {
+            WriteVersionReport(directory, info.xex, image.u8string() + " (default.xex)");
         }
         const std::filesystem::path target = directory / setup::kExtractedFolderName;
         const std::filesystem::path partial = directory / L"game.partial";
@@ -712,14 +753,14 @@ void DrawGameSetup(Launcher& app) {
     if (app.titleFont) ImGui::PopFont();
     ImGui::Separator();
     ImGui::Spacing();
-    paragraph(Tr(app, "The game needs your own copy of The Darkness for Xbox 360 (USA/Europe "
-                      "disc). Choose a disc image (.iso) or a folder with the extracted game "
+    paragraph(Tr(app, "The game needs your own copy of The Darkness for Xbox 360 (the "
+                      "USA/Europe disc, or a release with the same code such as a localised "
+                      "one). Choose a disc image (.iso) or a folder with the extracted game "
                       "files (the folder that contains default.xex). A disc image is extracted "
                       "next to the launcher (about 7 GB)."));
     if (app.gameStatus == setup::GameStatus::kWrongVersion && !app.gameSha256.empty()) {
         ImGui::Spacing();
-        paragraph(Tr(app, "The game files found are a different version of the game. Supported: "
-                          "The Darkness, Xbox 360, USA/Europe disc (title 545407EE)."));
+        paragraph(Tr(app, DifferentVersionText(app.gameIdentity)));
         paragraph(app.gameFolder.u8string() + "  (default.xex SHA-256 " + app.gameSha256 + ")",
                   true);
     }
@@ -1010,7 +1051,7 @@ void UpdateDetections(Launcher& app) {
     bool measured = false;
     const RuntimeGpuIdentity gpu = RuntimeDetectGpuIdentity();
     const auto calibration =
-        RuntimeLoadGpuCalibration(RuntimeGpuCalibrationPath(app.directory / L"runtime_data"));
+        RuntimeLoadGpuCalibration(RuntimeGpuCalibrationPath(app.userData.root));
     if (calibration && RuntimeGpuCalibrationMatches(*calibration, gpu)) {
         RuntimeScaleChoiceInputs inputs;
         inputs.backdrop = calibration->backdrop;
@@ -1276,6 +1317,77 @@ std::string ReadPackageVersion(const std::filesystem::path& directory) {
     }
 }
 
+// Copies the saves of another (older) folder into the saves folder in use;
+// the saves and settings there are kept under a new name.
+void ImportSaves(Launcher& app, const std::filesystem::path& source) {
+    bool running = true;
+    try {
+        running = RuntimeSingleInstance::Exists(kRuntimeTitleLockName);
+    } catch (...) {
+    }
+    if (running) {
+        ShowModal(app, Tr(app, "Close the game first"),
+                  Tr(app, "Saves can be imported while the game is not running."));
+        return;
+    }
+    const RuntimeUserDataCopy copy = RuntimeImportUserData(app.userData, source);
+    std::string text = copy.ok ? std::string{} : copy.error;
+    for (const std::string& line : copy.lines) text += (text.empty() ? "" : "\n") + line;
+    app.userData = RuntimeDetectUserDataLayout(app.directory);
+    app.activeConfig = app.userData.configPath;
+    app.userDataNotice.clear();
+    Reload(app);
+    ShowModal(app, Tr(app, copy.ok ? "Saves imported" : "Saves not imported"), text);
+}
+
+// One-time notices about the saves folder: the copy this start made, or
+// saves of an older version that were left in this folder.
+void DrawUserDataBar(Launcher& app) {
+    const bool leftBehind = app.userData.gameFolderSavesLeftBehind;
+    if (app.userDataNotice.empty() && !leftBehind) return;
+    const float button = ImGui::GetFontSize() * 13.0f;
+    ImGui::Spacing();
+    if (!app.userDataNotice.empty()) {
+        if (app.userDataNoticeError) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.45f, 0.40f, 1.0f));
+        }
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(Shown(app, app.userDataNotice).c_str());
+        ImGui::PopTextWrapPos();
+        if (app.userDataNoticeError) ImGui::PopStyleColor();
+        if (ImGui::Button((Shown(app, Tr(app, "Open saves folder")) + "##savesopen").c_str(),
+                          ImVec2(button, 0.0f))) {
+            OpenFolder(app.userData.root);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((Shown(app, Tr(app, "OK")) + "##savesok").c_str(),
+                          ImVec2(button * 0.5f, 0.0f))) {
+            app.userDataNotice.clear();
+        }
+    } else {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(
+            Shown(app, ui::FormatText(
+                           Tr(app, "This folder has saves of an older version that were not "
+                                   "copied, because {} already has saves."),
+                           {app.userData.root.u8string()}))
+                .c_str());
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button((Shown(app, Tr(app, "Use this folder's saves")) + "##savesuse").c_str(),
+                          ImVec2(button, 0.0f))) {
+            ImportSaves(app, app.directory);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((Shown(app, Tr(app, "Keep the current saves")) + "##saveskeep").c_str(),
+                          ImVec2(button, 0.0f))) {
+            RuntimeKeepGameFolderUserData(app.userData);
+            app.userData = RuntimeDetectUserDataLayout(app.directory);
+        }
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+}
+
 void DrawAbout(Launcher& app) {
     if (app.openAbout) {
         ImGui::OpenPopup("##about");
@@ -1340,6 +1452,29 @@ void DrawAbout(Launcher& app) {
     paragraph(Tr(app, "The licence texts are in the licenses folder. Crash reports "
                       "(runtime_crash.log and .dmp files) are in the logs folder: attach them "
                       "to a bug report."));
+    paragraph(app.userData.mode == RuntimeUserDataMode::kPerUser
+                  ? ui::FormatText(Tr(app, "Saves and settings: {}"), {app.userData.root.u8string()})
+                  : ui::FormatText(Tr(app, "Saves and settings: in this folder ({})."),
+                                   {app.userData.mode == RuntimeUserDataMode::kPortable
+                                        ? std::string("portable.txt")
+                                        : app.userData.reason}));
+    {
+        const float wide = ImGui::GetFontSize() * 11.0f;
+        if (app.arabic) AlignRight(wide * 2.0f + ImGui::GetStyle().ItemSpacing.x);
+        if (ImGui::Button((Shown(app, Tr(app, "Open saves folder")) + "##aboutsaves").c_str(),
+                          ImVec2(wide, 0.0f))) {
+            OpenFolder(app.userData.root);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button((Shown(app, Tr(app, "Import saves...")) + "##aboutimport").c_str(),
+                          ImVec2(wide, 0.0f))) {
+            if (const auto picked = PickPath(app, Pick::kSavesFolder)) {
+                ImGui::CloseCurrentPopup();
+                ImportSaves(app, *picked);
+            }
+        }
+        ImGui::Spacing();
+    }
     const float button = ImGui::GetFontSize() * 7.5f;
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
     auto licences = [&] {
@@ -1406,6 +1541,7 @@ void DrawFrame(Launcher& app) {
     if (app.gameStatus != setup::GameStatus::kOk) {
         DrawGameSetup(app);
     } else {
+        DrawUserDataBar(app);
         DrawLanguagePackBar(app);
         const auto changes = ui::DrawPanel(app.model, ui::Surface::kLauncher);
         if (!changes.empty()) {
@@ -1578,18 +1714,61 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     app.model.schema = &app.schema;
     app.runtimeExecutable = app.directory / L"TheDarkness.exe";
     app.presetDirectory = app.directory / L"presets";
-    app.activeConfig = app.directory / L"TheDarkness.pc.toml";
+    // Saves and settings live in Saved Games (0.9.1). The first start after
+    // an update from 0.9.0 copies them there from this folder (not while the
+    // game runs: it may be saving).
+    app.userData = RuntimeDetectUserDataLayout(app.directory);
+    bool gameRunning = true;
+    try {
+        gameRunning = RuntimeSingleInstance::Exists(kRuntimeTitleLockName);
+    } catch (...) {
+    }
+    if (app.userData.migrationPending && !gameRunning) {
+        RuntimeUserDataCopy copy;
+        app.userData = RuntimeMigrateGameFolderUserData(app.userData, copy);
+        if (!copy.ok) {
+            app.userDataNotice = ui::FormatText(
+                Tr(app, "Your saves and settings could not be copied to {}: {}. The game keeps "
+                        "using this folder and tries again at its next start."),
+                {app.userData.perUserRoot.u8string(), copy.error});
+            app.userDataNoticeError = true;
+        } else if (copy.files) {
+            app.userDataNotice = ui::FormatText(
+                Tr(app, "Your saves and settings were copied to {} and every copy was checked. "
+                        "The game uses them from there now; the originals in this folder stay "
+                        "unchanged as a backup."),
+                {app.userData.root.u8string()});
+        }
+    }
+    app.activeConfig = app.userData.configPath;
     app.exampleConfig = app.directory / L"TheDarkness.pc.example.toml";
     try {
         app.presets = EnumeratePcPresetOptions(app.presetDirectory);
     } catch (...) {
     }
-    if (!std::filesystem::is_regular_file(app.runtimeExecutable) || app.presets.empty() ||
-        !std::filesystem::is_regular_file(app.exampleConfig)) {
-        MessageBoxW(nullptr,
-                    L"The settings launcher must stay beside TheDarkness.exe, its example "
-                    L"configuration and the presets folder.",
-                    kWindowTitle, MB_ICONERROR | MB_OK);
+    // Name exactly what is missing (#2: a Steam Deck extraction left the presets
+    // folder out); the launcher must stay beside the runtime, its example
+    // configuration and the presets.
+    std::wstring missing;
+    std::error_code fileError;
+    if (!std::filesystem::is_regular_file(app.runtimeExecutable, fileError)) {
+        missing += L"\n  - TheDarkness.exe";
+    }
+    if (!std::filesystem::is_regular_file(app.exampleConfig, fileError)) {
+        missing += L"\n  - TheDarkness.pc.example.toml";
+    }
+    if (app.presets.empty()) {
+        missing += std::filesystem::is_directory(app.presetDirectory, fileError)
+                       ? L"\n  - the presets in the presets folder (empty or unreadable)"
+                       : L"\n  - the presets folder";
+    }
+    if (!missing.empty()) {
+        const std::wstring text =
+            L"Some files of " DARKNESS_PRODUCT_NAME " are missing next to the settings launcher:" +
+            missing +
+            L"\n\nExtract the whole zip again into an empty folder and keep its folders "
+            L"(presets, licenses).\n\nFolder: " + app.directory.wstring();
+        MessageBoxW(nullptr, text.c_str(), kWindowTitle, MB_ICONERROR | MB_OK);
         return 1;
     }
 

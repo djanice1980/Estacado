@@ -51,6 +51,7 @@ mouse_sensitivity = 1.0
 mouse_acceleration = 0.0
 mouse_smoothing = 0.0
 mouse_invert_y = false
+button_prompts = "auto"
 mouse_look = "native"
 overlay_key = "F1"
 controller_sensitivity = "medium"

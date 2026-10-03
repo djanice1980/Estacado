@@ -159,12 +159,20 @@ int main(int argc, char** argv) {
     context.lr = 0x8249A1ECu;  // the snapshot copy of the same view
     RuntimeScaleClientViewFov(context, base);
     if (!Check(viewFov() == 70.0f, "another memcpy caller was scaled")) return 1;
+    // #6: the per-frame FOV smoothing (opt-in in 0.9.1, DARKNESS_FOV_SMOOTHING=1)
+    // keeps the view hook on at the original field of view; a lone frame shows
+    // the title's value unchanged.
+    _putenv_s("DARKNESS_FOV_SMOOTHING", "1");
     ConfigureRuntimeCamera(kOriginalGameplayFovDegrees, false);
-    if (!Check(g_runtime_view_fov_active.load() == 0u,
-               "the original field of view left the view scaler on")) return 1;
+    _putenv_s("DARKNESS_FOV_SMOOTHING", "");
+    if (!Check(g_runtime_view_fov_active.load() == 1u,
+               "the FOV smoothing left the view hook off")) return 1;
     context.lr = kClientViewCopyReturn;
     RuntimeScaleClientViewFov(context, base);
     if (!Check(viewFov() == 70.0f, "the original field of view changed the view")) return 1;
+    ConfigureRuntimeCamera(kOriginalGameplayFovDegrees, false);
+    if (!Check(g_runtime_view_fov_active.load() == 0u,
+               "the original field of view without smoothing left the view scaler on")) return 1;
     context = {};
 
     const uint32_t originalHostFpscr = context.fpscr.getcsr();

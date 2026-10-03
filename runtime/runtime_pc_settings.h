@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime_input.h"
+#include "runtime_user_data.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,10 @@ struct RuntimeLaunchOptions {
     std::filesystem::path pcConfigInstallPath;
     std::filesystem::path modsConfigPath;
     std::filesystem::path userDataRoot;
+    // --user-data-root: that folder also holds the settings unless
+    // --pc-config/--preset name another file (isolated runs never touch the
+    // player's own folder), and nothing is copied into it.
+    bool userDataRootExplicit{};
     bool pcConfigExplicit{};
     bool inputDiagnostics{};
     bool frameCadenceDiagnostics{};
@@ -50,7 +55,14 @@ struct RuntimeLaunchOptions {
 
 // Parses the runtime's title path and PC configuration selection without
 // interpreting graphics settings in a second subsystem. ReXGlue remains the
-// authoritative parser for graphics/display CVars.
+// authoritative parser for graphics/display CVars. Arguments are UTF-8; the
+// settings and saves default to the user data layout (runtime_user_data.h).
+RuntimeLaunchOptions ParseRuntimeLaunchOptions(
+    int argc, const char* const* argv,
+    const std::filesystem::path& executableDirectory,
+    const RuntimeUserDataLayout& userData);
+// The same with the game folder layout (TheDarkness.pc.toml and runtime_data
+// beside the executable).
 RuntimeLaunchOptions ParseRuntimeLaunchOptions(
     int argc, const char* const* argv,
     const std::filesystem::path& executableDirectory);
@@ -174,8 +186,33 @@ std::map<std::string, std::string> RuntimePcConfigSettingValues(
 // (the in-scene glow quad 207D and the final composite's tf1) enlarge the
 // tracked native glow with native bilinear reconstruction
 // (native_resolve_region_tracking, :source=native).
+// The pause menu blends its own grading table into the game's (6977, pause
+// frames only; 0.9.1, issue #10): rendered at scale, the next table pass read
+// it at native texel centres, which at even scales fall between two scaled
+// texels and mixed neighbouring table entries into dark colours (the
+// greenish haze, strongest at 2x, half at 4x, none at odd scales).
 inline constexpr int64_t kTitleScaleThreshold = 640;
 inline constexpr std::string_view kTitleNativeGridRules =
+    "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
+    "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
+    "B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26;"
+    "B29F0BF45937C4C4:69779AD07425E356:0:324:18:26;"
+    "B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:6:filter;"
+    "B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:26:filter;"
+    "B29F0BF45937C4C4:9F1D2D64E5F75924:0:1280:720:26:filter;"
+    "B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:90:6:filter;"
+    "B29F0BF45937C4C4:8F96D5C280D780BC:0:1280:720:26:filter;"
+    "EC4685ADB9CCBC13:207D40E674A7C916:0:1280:720:26:filter_scaled:source=native;"
+    "4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native";
+// The earlier built-in annotations: configurations that carry exactly one of
+// these are upgraded to kTitleNativeGridRules. kLegacyTitleNativeGridRules =
+// the lookup tables only (0.9.0 presets); kPreviousTitleNativeGridRules = with
+// the bloom chain, before the pause table (0.9.1 development presets).
+inline constexpr std::string_view kLegacyTitleNativeGridRules =
+    "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
+    "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
+    "B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26";
+inline constexpr std::string_view kPreviousTitleNativeGridRules =
     "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
     "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
     "B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26;"
@@ -186,20 +223,20 @@ inline constexpr std::string_view kTitleNativeGridRules =
     "B29F0BF45937C4C4:8F96D5C280D780BC:0:1280:720:26:filter;"
     "EC4685ADB9CCBC13:207D40E674A7C916:0:1280:720:26:filter_scaled:source=native;"
     "4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native";
-// The earlier built-in annotations (lookup tables only): configurations that
-// carry exactly these are upgraded to kTitleNativeGridRules.
-inline constexpr std::string_view kLegacyTitleNativeGridRules =
-    "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
-    "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
-    "B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26";
 // The configuration text the graphics plugin receives: unchanged at internal
 // scale 1 or when all annotations are present; otherwise the missing ones
 // are added, including native_resolve_region_tracking = true (explicit
-// values in the configuration win, except the legacy rule string, which is
-// replaced). Throws when the text cannot be parsed (it was validated before).
+// values in the configuration win, except an earlier built-in rule string,
+// which is replaced). Throws when the text cannot be parsed (it was validated
+// before).
 std::string RuntimePcConfigWithTitleScaleRequirements(const std::string& contents,
                                                       const std::string& sourceName,
                                                       bool* changed = nullptr);
+// The GPU configuration with gpu_program_cache_source (the title's compiled
+// shader cache, System/Xenon/ProgramCache.xpc, from which the shader prewarm
+// rebuilds the packaged shader list at startup, #5) as a top-level key.
+std::string RuntimePcConfigWithProgramCacheSource(const std::string& contents,
+                                                  const std::filesystem::path& programCache);
 // resolution_scale = 0 is Automatic (V330, runtime_auto_scale.h): the GPU
 // receives automaticScale instead; other values stay unchanged.
 struct RuntimePcScaleTarget {
@@ -231,3 +268,27 @@ std::vector<std::string> RuntimePcConfigInstallLines(
 std::vector<std::string> RuntimePcConfigInstallErrorLines(
     const std::filesystem::path& sourcePath,
     const std::filesystem::path& destinationPath, const std::string& error);
+
+// Keyboard defaults (0.9.1): use (A) on E and jump (Y) on Space; 0.9.0 had A
+// on Space and Y on E. input.bindings_revision marks configurations written
+// with the new defaults. One without it gets the new pair when its A and Y
+// keys are still the old defaults (or absent) and no other binding uses Space
+// or E; a configuration with its own choice keeps it (an absent A or Y key is
+// written as its old default, so nothing moves). Either way it is marked, so
+// a later choice is never changed again. Configurations without bindings use
+// the new defaults.
+inline constexpr int64_t kRuntimeKeyBindingsRevision = 2;
+struct RuntimeKeyBindingsUpgrade {
+    bool changed = false;  // the configuration text changed (marked)
+    bool swapped = false;  // A and Y moved to E and Space
+    std::string outcome;   // current, no_bindings, swapped, custom, conflict
+};
+// The upgrade of configuration text: unchanged text when it is already current.
+std::string RuntimePcConfigWithKeyBindingsUpgrade(const std::string& contents,
+                                                  const std::string& sourceName,
+                                                  RuntimeKeyBindingsUpgrade* upgrade = nullptr);
+// Rewrites a player's configuration file through the validated atomic install
+// when the upgrade changes it (never for packaged presets or examples). Missing
+// files are left alone; failures are returned in error (the file is unchanged).
+RuntimeKeyBindingsUpgrade RuntimeUpgradePcConfigFileKeyBindings(
+    const std::filesystem::path& path, std::string* error = nullptr);

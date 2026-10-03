@@ -8,7 +8,9 @@
 //
 // Each SHAREABLE_DIR is a "shaders/shareable" directory of a persistent store.
 // Inputs with another format version are skipped and reported. The output
-// directory receives <title>.xsh and <title>.<api>.d3d12.xpso.
+// directory receives <title>.xsh, <title>.<api>.d3d12.xpso and the shader
+// index <title>.xshi (no microcode; the only shader file a public package
+// may carry, with the .xpso).
 //
 // Build (from the repository root):
 //   clang-cl /nologo /O2 /EHsc /std:c++20 /W3 /I external/ReXGlue/include
@@ -83,11 +85,16 @@ int main(int argc, char** argv) {
   seed::ReadWholeFile(out / shader_name, data);
   const bool shaders_ok = seed::ParseShaders(data, shader_version, records) == data.size();
   const size_t shader_count = records.size();
+  // The shader index (<title>.xshi): hashes and sizes only, no microcode, so
+  // packages without the microcode can still prewarm (pipeline_storage_seed.h).
+  const std::vector<uint8_t> index = seed::BuildShaderIndex(data, shader_version);
+  const bool index_ok = !index.empty() && seed::WriteWholeFile(out / (title + ".xshi"), index);
   seed::ReadWholeFile(out / pipeline_name, data);
   const bool pipelines_ok =
       seed::ParsePipelines(data, api_magic, pipeline_version, records) == data.size();
-  std::printf("seed=%s inputs_used=%zu shaders=%zu pipelines=%zu complete=%d\n",
-              out.string().c_str(), used, shader_count, records.size(),
-              (shaders_ok && pipelines_ok) ? 1 : 0);
-  return shaders_ok && pipelines_ok ? 0 : 1;
+  std::printf("seed=%s inputs_used=%zu shaders=%zu indexed=%zu pipelines=%zu complete=%d\n",
+              out.string().c_str(), used, shader_count,
+              index.size() > 8 ? (index.size() - 8) / seed::kShaderIndexRecordSize : size_t(0),
+              records.size(), (shaders_ok && pipelines_ok && index_ok) ? 1 : 0);
+  return shaders_ok && pipelines_ok && index_ok ? 0 : 1;
 }

@@ -117,6 +117,8 @@ using FrameBoundaryFn = void (*)(void*);
 using InterruptTimingRecordFn = void (*)(void*, uint64_t, uint32_t, uint32_t,
     uint32_t, uint32_t, uint64_t, uint64_t, uint64_t);
 using NoteInputTransitionFn = void (*)(void*, int64_t, int64_t, uint32_t, uint32_t);
+using NoteInputDeviceFn = void (*)(void*, uint32_t);
+using GetPromptLabelsFn = uint32_t (*)(void*, char*, uint32_t);
 using GetManualCaptureFn = uint32_t (*)(void*, uint64_t*);
 using GetPcSettingsFn = uint32_t (*)(void*, EmbeddedGpuPcSettings*);
 using PollKeyboardMouseFn = uint32_t (*)(void*, uint32_t,
@@ -151,6 +153,8 @@ struct GraphicsAdapter {
     FrameBoundaryFn frame_boundary{};
     InterruptTimingRecordFn interrupt_timing_record{};
     NoteInputTransitionFn note_input_transition{};
+    NoteInputDeviceFn note_input_device{};
+    GetPromptLabelsFn get_prompt_labels{};
     GetManualCaptureFn get_manual_capture{};
     GetPcSettingsFn get_pc_settings{};
     PollKeyboardMouseFn poll_keyboard_mouse{};
@@ -676,6 +680,10 @@ bool InitializeRuntimeGraphics(uint8_t* guest_virtual_base) {
             adapter.module, "rex_gpu_embedded_notify_physical_write");
         adapter.note_input_transition = ResolveOptional<NoteInputTransitionFn>(
             adapter.module, "rex_gpu_embedded_note_input_transition");
+        adapter.note_input_device = ResolveOptional<NoteInputDeviceFn>(
+            adapter.module, "rex_gpu_embedded_note_input_device");
+        adapter.get_prompt_labels = ResolveOptional<GetPromptLabelsFn>(
+            adapter.module, "rex_gpu_embedded_get_prompt_labels");
         adapter.get_manual_capture = ResolveOptional<GetManualCaptureFn>(
             adapter.module, "rex_gpu_embedded_get_manual_capture");
         adapter.interrupt_timing_token = ResolveOptional<InterruptTimingTokenFn>(
@@ -941,6 +949,23 @@ void RuntimeGraphicsNoteInputTransition(int64_t host_performance_counter,
     adapter.note_input_transition(adapter.gpu, host_performance_counter,
                                   host_performance_frequency, packet_number,
                                   buttons);
+}
+
+void RuntimeGraphicsNoteInputDevice(uint32_t device) noexcept {
+    if (!adapter.active.load(std::memory_order_acquire) || !adapter.gpu ||
+        !adapter.note_input_device) {
+        return;
+    }
+    adapter.note_input_device(adapter.gpu, device);
+}
+
+uint32_t RuntimeGraphicsPromptLabels(char* buffer, uint32_t size) noexcept {
+    if (buffer && size) buffer[0] = '\0';
+    if (!adapter.active.load(std::memory_order_acquire) || !adapter.gpu ||
+        !adapter.get_prompt_labels) {
+        return 0;
+    }
+    return adapter.get_prompt_labels(adapter.gpu, buffer, size);
 }
 
 bool RuntimeGraphicsIsActive() noexcept {
@@ -1605,9 +1630,9 @@ static __declspec(noinline) bool DeliverPendingRuntimeGraphicsInterrupts(
                     *reinterpret_cast<const volatile uint32_t*>(base + commandSemaphore));
             }
         }
-        if (interrupt_ordinal == 512) {
+        if (interrupt_ordinal == 512 && RuntimeMilestoneSnapshotsEnabled()) {
             RuntimeWriteThreadSnapshot("m6c-post-command-512-gpu-interrupts");
-        } else if (interrupt_ordinal == 2048) {
+        } else if (interrupt_ordinal == 2048 && RuntimeMilestoneSnapshotsEnabled()) {
             RuntimeWriteThreadSnapshot("m6c-post-command-2048-gpu-interrupts");
         }
         const bool traceInterrupt = interrupt.source == 0

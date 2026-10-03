@@ -34,6 +34,8 @@ void RuntimeFatalConfigure(const wchar_t* crashDirectory, void* miniDumpWriteDum
     g_miniDumpWriteDump = reinterpret_cast<MiniDumpWriteDumpFn>(miniDumpWriteDump);
 }
 
+const wchar_t* RuntimeFatalDirectory() noexcept { return g_crashDirectory; }
+
 namespace {
 std::mutex g_fatalMutex;
 std::string g_fatalDetail;

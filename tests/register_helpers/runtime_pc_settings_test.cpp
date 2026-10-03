@@ -335,8 +335,8 @@ int main() {
                         "SUBTITLES=title_owned_interactive,cutscene,casual,fighting,darkness"),
                     "capabilities must preserve the title-owned subtitle controls");
     passed &= Check(has_line(
-                        "PORTABLE_DATA=adjacent_runtime_data_default,user_data_root_override"),
-                    "capabilities must expose portable and managed data roots");
+                        "USER_DATA=saved_games_default,portable_txt_game_folder,user_data_root_override,verified_copy_from_game_folder_once"),
+                    "capabilities must expose the per-user, portable and managed data roots");
     passed &= Check(has_line(
                         "SETTINGS_UTILITY=TheDarknessSettings.exe_schema_frontend_v1"),
                     "capabilities must expose the packaged native settings utility");
@@ -1177,6 +1177,31 @@ int main() {
                             std::string{}) == kTitleNativeGridRules &&
                         legacy_table["native_resolve_region_tracking"].value_or(false),
                     "the legacy lookup-table-only rules must be upgraded with region tracking");
+    const std::string previous2 = std::string("pc_config_version = 1\nresolution_scale = 2\n") +
+                                  "draw_resolution_scale_threshold = 640\n" +
+                                  "draw_resolution_scale_native_grid_rules = \"" +
+                                  std::string(kPreviousTitleNativeGridRules) + "\"\n" +
+                                  "native_resolve_region_tracking = true\n";
+    const toml::table previous_table = toml::parse(
+        RuntimePcConfigWithTitleScaleRequirements(previous2, "previous2", &changed));
+    passed &= Check(changed &&
+                        previous_table["draw_resolution_scale_native_grid_rules"].value_or(
+                            std::string{}) == kTitleNativeGridRules &&
+                        std::string(kTitleNativeGridRules).find(
+                            "B29F0BF45937C4C4:69779AD07425E356:0:324:18:26") != std::string::npos,
+                    "the rules before the pause grading table (#10) must be upgraded");
+    const std::string base_config = "pc_config_version = 1\n[input]\n";
+    const std::string with_program_cache = RuntimePcConfigWithProgramCacheSource(
+        base_config,
+        std::filesystem::path(u8"C:\\Games\\Dark \"ness\"\\System\\Xenon\\ProgramCache.xpc"));
+    const toml::table program_cache_table = toml::parse(with_program_cache);
+    passed &= Check(program_cache_table["gpu_program_cache_source"].value_or(std::string{}) ==
+                            "C:\\Games\\Dark \"ness\"\\System\\Xenon\\ProgramCache.xpc" &&
+                        program_cache_table["pc_config_version"].value_or(int64_t(0)) == 1 &&
+                        program_cache_table["input"].as_table() != nullptr,
+                    "the program cache source must be a top-level escaped TOML string");
+    passed &= Check(RuntimePcConfigWithProgramCacheSource(base_config, {}) == base_config,
+                    "no program cache must leave the configuration unchanged");
     const std::string custom2 = std::string("pc_config_version = 1\nresolution_scale = 2\n") +
                                 "draw_resolution_scale_native_grid_rules = \"A:B:0:16:16:6\"\n";
     const toml::table custom_table = toml::parse(
@@ -1292,6 +1317,91 @@ int main() {
                           bind_source, bind_target, {{"input.bind.x", "Banana"}}, true);
                     }),
                     "unknown key names must be refused by the writer");
+
+    // 0.9.1 keyboard defaults (use on E, jump on Space): a 0.9.0
+    // configuration with the old pair untouched gets the new pair once; any
+    // choice of the player stays; every upgraded file is marked.
+    {
+      const auto upgrade = [](const std::string& text, RuntimeKeyBindingsUpgrade* result) {
+        return toml::parse(RuntimePcConfigWithKeyBindingsUpgrade(text, "upgrade.toml", result));
+      };
+      const auto key = [](const toml::table& table, const char* action) {
+        return table["input"]["bind"][action].value_or(std::string{"<none>"});
+      };
+      const auto revision = [](const toml::table& table) {
+        return table["input"]["bindings_revision"].value_or(int64_t{0});
+      };
+      RuntimeKeyBindingsUpgrade result;
+      auto table = upgrade("pc_config_version = 1\n[input.bind]\na = 'Space'\nb = 'Shift'\n"
+                           "x = 'R'\ny = 'E'\nstart = 'Escape'\n", &result);
+      passed &= Check(result.changed && result.swapped && result.outcome == "swapped" &&
+                          key(table, "a") == "E" && key(table, "y") == "Space" &&
+                          key(table, "b") == "Shift" && revision(table) == 2,
+                      "untouched 0.9.0 keys must move to use on E and jump on Space");
+      table = upgrade("pc_config_version = 1\n[input.bind]\nstart = 'Return'\n", &result);
+      passed &= Check(result.swapped && key(table, "a") == "E" && key(table, "y") == "Space",
+                      "absent A and Y keys were the old defaults and must move explicitly");
+      table = upgrade("pc_config_version = 1\n[input.bind]\na = 'G'\n", &result);
+      passed &= Check(result.changed && !result.swapped && result.outcome == "custom" &&
+                          key(table, "a") == "G" && key(table, "y") == "E" && revision(table) == 2,
+                      "a custom use key must stay and the untouched jump key keep E");
+      table = upgrade("pc_config_version = 1\n[input.bind]\na = 'space'\ny = 'e'\nx = 'E'\n", &result);
+      passed &= Check(!result.swapped && result.outcome == "conflict" &&
+                          key(table, "a") == "space" && key(table, "x") == "E",
+                      "another key on E or Space must keep the configuration unchanged");
+      const std::string no_bindings = "pc_config_version = 1\n[audio]\nmaster_volume = 1.0\n";
+      passed &= Check(RuntimePcConfigWithKeyBindingsUpgrade(no_bindings, "plain.toml", &result) ==
+                              no_bindings &&
+                          !result.changed && result.outcome == "no_bindings",
+                      "a configuration without saved keys (a preset copy) must stay byte-identical");
+      const std::string current =
+          "pc_config_version = 1\n[input]\nbindings_revision = 2\n[input.bind]\na = 'Space'\ny = 'E'\n";
+      passed &= Check(RuntimePcConfigWithKeyBindingsUpgrade(current, "current.toml", &result) == current &&
+                          !result.changed && result.outcome == "current",
+                      "a marked configuration (the player's later choice) must never change");
+
+      const auto old_config = executable_directory / "keys_090.toml";
+      std::ofstream(old_config, std::ios::binary | std::ios::trunc)
+          << "pc_config_version = 1\n[input]\nkeyboard_mouse = true\n[input.bind]\na = 'Space'\ny = 'E'\n";
+      std::string error;
+      const auto first = RuntimeUpgradePcConfigFileKeyBindings(old_config, &error);
+      const toml::table upgraded = toml::parse_file(old_config.string());
+      const auto second = RuntimeUpgradePcConfigFileKeyBindings(old_config, &error);
+      passed &= Check(first.changed && first.swapped && key(upgraded, "a") == "E" &&
+                          key(upgraded, "y") == "Space" && revision(upgraded) == 2 &&
+                          upgraded["input"]["keyboard_mouse"].value_or(false) &&
+                          ValidateRuntimePcConfig(old_config, true).valid &&
+                          !second.changed && second.outcome == "current" && error.empty(),
+                      "a 0.9.0 file must be upgraded once, validated and atomically");
+      passed &= Check(RuntimeUpgradePcConfigFileKeyBindings(executable_directory / "missing_keys.toml",
+                                                            &error).outcome == "no_file" &&
+                          error.empty(),
+                      "a missing configuration must be left alone");
+
+      const auto edited = executable_directory / "keys_edit.toml";
+      std::ofstream(edited, std::ios::binary | std::ios::trunc)
+          << "pc_config_version = 1\n[input.bind]\na = 'Space'\ny = 'E'\n";
+      InstallRuntimePcPresetWithOverrides(edited, edited, {{"input.bind.x", "G"}}, true);
+      const toml::table edit_table = toml::parse_file(edited.string());
+      passed &= Check(key(edit_table, "a") == "E" && key(edit_table, "y") == "Space" &&
+                          key(edit_table, "x") == "G" && revision(edit_table) == 2,
+                      "a settings save must upgrade a 0.9.0 configuration before its changes");
+      const toml::table first_key = toml::parse_file(bind_target.string());
+      passed &= Check(revision(first_key) == 2 && key(first_key, "y") == "<none>",
+                      "the first saved key must mark the configuration (absent keys = new defaults)");
+      std::ofstream(edited, std::ios::binary | std::ios::trunc)
+          << "pc_config_version = 1\n[input]\nbindings_revision = 3\n";
+      passed &= Check(!ValidateRuntimePcConfig(edited, true).valid,
+                      "an unknown key binding revision must be refused");
+      const auto inspected = executable_directory / "keys_inspect.toml";
+      std::ofstream(inspected, std::ios::binary | std::ios::trunc)
+          << "pc_config_version = 1\n[input.bind]\na = 'Space'\ny = 'E'\n";
+      const auto values = RuntimePcConfigSettingValues(inspected);
+      passed &= Check(values.count("input.bind.a") && values.at("input.bind.a") == "E" &&
+                          values.at("input.bind.y") == "Space" &&
+                          key(toml::parse_file(inspected.string()), "a") == "Space",
+                      "inspection must show the upgraded keys without writing the file");
+    }
 
     // Saved configurations stay readable: a 0.01-step value prints as typed.
     const auto source = executable_directory / "readable_source.toml";

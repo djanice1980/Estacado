@@ -61,7 +61,7 @@ ui::Values ReadValues(const ui::Schema& schema, const std::filesystem::path& pat
         return Normalize(schema, RuntimePcConfigSettingValues(path));
     } catch (const std::exception& exception) {
         std::fprintf(stderr, "RUNTIME_SETTINGS_SERVICE read_failed path=%s error=%s\n",
-                     path.string().c_str(), exception.what());
+                     path.u8string().c_str(), exception.what());
         return {};
     }
 }
@@ -118,7 +118,7 @@ void Run(RuntimeSettingsServiceConfig config) {
     std::fprintf(stderr,
                  "RUNTIME_SETTINGS_SERVICE configured=%u persistence=%u settings=%zu config=%s\n",
                  configured ? 1u : 0u, config.persistence ? 1u : 0u, schema.settings.size(),
-                 config.configPath.string().c_str());
+                 config.configPath.u8string().c_str());
     std::fflush(stderr);
     if (!configured) return;
 

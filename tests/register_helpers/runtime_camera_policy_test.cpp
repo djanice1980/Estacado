@@ -391,6 +391,28 @@ int main() {
     ok &= RuntimeTemporalCameraFrame(0x1100, true) == 0xF60;
     ok &= !RuntimeTemporalCameraFrame(400, true) && !RuntimeTemporalCameraFrame(0x1104, false);
     ok &= !RuntimeTemporalCameraFrame(0xFFFFFF00, false);
+    {
+        // 0.9.1 (#6): the rendered FOV follows the title's 30 Hz steps over
+        // one tick, every frame, continuously; 30 FPS and cuts are unchanged.
+        RuntimeFovSmoother s;
+        ok &= s.Next(70.0f, 1.0) == 70.0f && s.Next(70.0f, 1.007) == 70.0f;
+        const double tick = 1.0 / 30.0;
+        ok &= s.Next(66.0f, 1.014) == 70.0f;
+        ok &= std::fabs(s.Next(66.0f, 1.014 + tick / 2) - 68.0f) < 0.01f;
+        ok &= std::fabs(s.Next(66.0f, 1.014 + tick) - 66.0f) < 1e-4f;
+        // A change in the middle of a step continues from the shown value.
+        ok &= std::fabs(s.Next(62.0f, 1.014 + tick + 0.007) - 66.0f) < 1e-4f;
+        const float mid = s.Next(62.0f, 1.014 + tick + 0.007 + tick / 2);
+        ok &= std::fabs(mid - 64.0f) < 0.01f;
+        ok &= std::fabs(s.Next(58.0f, 1.014 + tick + 0.007 + tick / 2) - mid) < 1e-4f;
+        RuntimeFovSmoother thirty;
+        thirty.Next(70.0f, 2.0);
+        ok &= thirty.Next(60.0f, 2.0 + tick) == 60.0f;
+        RuntimeFovSmoother cut;
+        cut.Next(70.0f, 3.0);
+        cut.Next(70.0f, 3.007);
+        ok &= cut.Next(40.0f, 3.014) == 40.0f;
+    }
     if (!ok) {
         std::cerr << "runtime camera policy regression\n";
         return 1;

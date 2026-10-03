@@ -184,6 +184,7 @@ add_executable(runtime_import_test runtime_import_test.cpp
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_function_trace.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_graphics.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_input.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_button_prompts.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_job_poll_wake.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_memory.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_mmio.cpp"
@@ -352,6 +353,19 @@ target_include_directories(runtime_input_empty_slot_gate_test PRIVATE
 target_compile_definitions(runtime_input_empty_slot_gate_test PRIVATE
     DARKNESS_SOURCE_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
 add_test(NAME runtime_input_empty_slot_gate COMMAND runtime_input_empty_slot_gate_test)
+
+add_executable(runtime_input_slot_routing_test runtime_input_slot_routing_test.cpp)
+target_include_directories(runtime_input_slot_routing_test PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime")
+target_compile_definitions(runtime_input_slot_routing_test PRIVATE
+    DARKNESS_SOURCE_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
+add_test(NAME runtime_input_slot_routing COMMAND runtime_input_slot_routing_test)
+
+add_executable(runtime_button_prompts_test runtime_button_prompts_test.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_button_prompts.cpp")
+target_include_directories(runtime_button_prompts_test PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime")
+add_test(NAME runtime_button_prompts COMMAND runtime_button_prompts_test)
 
 add_executable(runtime_job_poll_wake_test runtime_job_poll_wake_test.cpp)
 target_include_directories(runtime_job_poll_wake_test PRIVATE
@@ -767,6 +781,7 @@ add_test(NAME runtime_input_merge_policy COMMAND runtime_input_merge_policy_test
 
 add_executable(runtime_pc_settings_test runtime_pc_settings_test.cpp
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_pc_settings.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_user_data.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_game_setup.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/pc_settings_schema.cpp")
 target_include_directories(runtime_pc_settings_test PRIVATE
@@ -774,6 +789,29 @@ target_include_directories(runtime_pc_settings_test PRIVATE
 target_compile_options(runtime_pc_settings_test PRIVATE /EHsc)
 target_link_libraries(runtime_pc_settings_test PRIVATE bcrypt tomlplusplus::tomlplusplus)
 add_test(NAME runtime_pc_settings COMMAND runtime_pc_settings_test)
+# 0.9.1 saves and settings per user: layouts, the verified one-time copy from
+# a 0.9.0 folder, imports, and paths beyond the system code page.
+add_executable(runtime_user_data_test runtime_user_data_test.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_user_data.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_pc_settings.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_game_setup.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/pc_settings_schema.cpp")
+target_include_directories(runtime_user_data_test PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime")
+target_compile_options(runtime_user_data_test PRIVATE /EHsc)
+target_link_libraries(runtime_user_data_test PRIVATE bcrypt tomlplusplus::tomlplusplus)
+add_test(NAME runtime_user_data COMMAND runtime_user_data_test)
+# 0.9.1 versions of default.xex: a synthetic encrypted XEX2 (no game data),
+# damaged files, and the protected .rdata the runtime reads.
+add_executable(runtime_xex_identity_test runtime_xex_identity_test.cpp
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_game_setup.cpp")
+target_include_directories(runtime_xex_identity_test PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime")
+target_compile_definitions(runtime_xex_identity_test PRIVATE
+    DARKNESS_SOURCE_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
+target_compile_options(runtime_xex_identity_test PRIVATE /EHsc)
+target_link_libraries(runtime_xex_identity_test PRIVATE bcrypt tomlplusplus::tomlplusplus)
+add_test(NAME runtime_xex_identity COMMAND runtime_xex_identity_test)
 # Language pack installs: patches, pack paths, stored zips, whole installs.
 add_executable(runtime_language_install_test runtime_language_install_test.cpp
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_language_install.cpp"
@@ -798,6 +836,7 @@ add_test(NAME runtime_gpu_calibration COMMAND runtime_gpu_calibration_test)
 set(SNAPSHOT_REX_RELEASE "${CMAKE_CURRENT_LIST_DIR}/../../external/ReXGlue/out/win-amd64/Release")
 add_executable(runtime_pc_config_snapshot_test runtime_pc_config_snapshot_test.cpp
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_pc_settings.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_user_data.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_game_setup.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_single_instance.cpp"
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/pc_settings_schema.cpp"

@@ -71,17 +71,12 @@ bool IsGuestGamePath(const std::string& path, std::filesystem::path* relative) {
 
 bool EqualPathComponent(const std::filesystem::path& left,
                         const std::filesystem::path& right) {
-    std::string leftText = left.string();
-    std::string rightText = right.string();
-    std::transform(leftText.begin(), leftText.end(), leftText.begin(),
-                   [](unsigned char value) {
-                       return static_cast<char>(std::tolower(value));
-                   });
-    std::transform(rightText.begin(), rightText.end(), rightText.begin(),
-                   [](unsigned char value) {
-                       return static_cast<char>(std::tolower(value));
-                   });
-    return leftText == rightText;
+    // Case-insensitive like NTFS names, and wide: the saves live under the
+    // user's profile, whose name may be beyond the system code page.
+    const std::wstring& leftText = left.native();
+    const std::wstring& rightText = right.native();
+    return CompareStringOrdinal(leftText.c_str(), int(leftText.size()), rightText.c_str(),
+                                int(rightText.size()), TRUE) == CSTR_EQUAL;
 }
 
 bool IsPathWithin(const std::filesystem::path& root,

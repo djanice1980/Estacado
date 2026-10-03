@@ -21,6 +21,7 @@
 // then stops translating mouse motion to the right stick). The environment
 // variable DARKNESS_NATIVE_MOUSE_LOOK=0 disables the hook for comparisons.
 #include "runtime_mouse_look.h"
+#include "runtime_button_prompts.h"
 
 #include "ppc_recomp_shared.h"
 #include "runtime_gpu_calibration.h"
@@ -202,6 +203,10 @@ void AfterClientFrame(PPCContext& ctx, uint8_t* base, uint32_t client) {
         // Released capture, lost focus or stick mode: nothing may carry over.
         DropPending("inactive");
         return;
+    }
+    if (mouse.dx || mouse.dy) {
+        // Mouse movement counts as keyboard/mouse input for button prompts.
+        RuntimeNoteInputActivity(false, true);
     }
     const Gate gate = ReadGate(base);
     LogGateChange(gate);

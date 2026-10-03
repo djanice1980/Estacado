@@ -4,8 +4,10 @@
 //   darkness_game_setup check <folder>             default.xex version check
 //   darkness_game_setup inspect <disc image>       files, size, version
 //   darkness_game_setup extract <disc image> <dir> check, then extract
+//   darkness_game_setup identify <default.xex>     the full version report
 //
-// Exit code 0 = supported game (and extracted), 1 = anything else.
+// Exit code 0 = a game that runs (the supported version or one with the same
+// code, runtime_game_setup.h) (and extracted), 1 = anything else.
 #include "runtime_game_setup.h"
 
 #include <cstdio>
@@ -15,20 +17,16 @@ namespace setup = darkness::game_setup;
 
 namespace {
 
-int CheckXex(const std::string& sha256) {
-    if (sha256.empty()) {
+int CheckXex(const setup::XexIdentity& identity) {
+    if (identity.fileSha256.empty()) {
         std::fprintf(stderr, "no readable default.xex\n");
         return 1;
     }
-    if (sha256 != setup::kSupportedXexSha256) {
-        std::fprintf(stderr,
-                     "default.xex SHA-256 %s is not the supported version (The Darkness, Xbox 360, "
-                     "USA/Europe disc, title 545407EE)\n",
-                     sha256.c_str());
-        return 1;
-    }
-    std::printf("default.xex: supported version\n");
-    return 0;
+    const bool runs = identity.match == setup::XexMatch::kSupported ||
+                      identity.match == setup::XexMatch::kSameCode;
+    std::fprintf(runs ? stdout : stderr, "default.xex (SHA-256 %s): %s\n",
+                 identity.fileSha256.c_str(), setup::XexMatchText(identity).c_str());
+    return runs ? 0 : 1;
 }
 
 }  // namespace
@@ -37,13 +35,24 @@ int wmain(int argc, wchar_t** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
                      "usage: darkness_game_setup check <folder> | inspect <disc image> | "
-                     "extract <disc image> <folder>\n");
+                     "extract <disc image> <folder> | identify <default.xex>\n");
         return 1;
     }
     const std::wstring command = argv[1];
     const std::filesystem::path source = argv[2];
     if (command == L"check") {
-        return CheckXex(setup::CheckGameFolder(source).sha256);
+        return CheckXex(setup::CheckGameFolder(source).identity);
+    }
+    if (command == L"identify") {
+        const setup::XexIdentity identity = setup::IdentifyXexFile(source, true);
+        std::printf("%s", setup::XexIdentityReport(identity, source.u8string()).c_str());
+        std::printf("structure_sha256=%s\npointer_sha256=%s\nprotected_sha256=%s\n",
+                    identity.structureSha256.c_str(), identity.pointerSha256.c_str(),
+                    identity.protectedSha256.c_str());
+        return identity.match == setup::XexMatch::kSupported ||
+                       identity.match == setup::XexMatch::kSameCode
+                   ? 0
+                   : 1;
     }
     const setup::DiscImageInfo info = setup::InspectDiscImage(source);
     if (!info.ok) {
@@ -52,7 +61,7 @@ int wmain(int argc, wchar_t** argv) {
     }
     std::printf("disc image: %llu files, %llu MB\n", static_cast<unsigned long long>(info.files),
                 static_cast<unsigned long long>(info.bytes >> 20));
-    if (CheckXex(info.xexSha256) != 0) return 1;
+    if (CheckXex(info.xex) != 0) return 1;
     if (command == L"inspect") return 0;
     if (command != L"extract" || argc < 4) {
         std::fprintf(stderr, "extract needs a destination folder\n");

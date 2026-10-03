@@ -79,8 +79,12 @@ void RuntimeTraceWait(uint32_t handle, bool hasTimeout, int64_t timeout, uint32_
                       PPCContext& context);
 void RuntimeTracePostContentCompleted();
 void RuntimeTraceControlRead(uint32_t address, uint32_t value, uint32_t function, uint32_t threadId);
+// Thread snapshots in <game folder>\logs: a stop or freeze writes one for
+// its report; the development milestones (startup, content loading) only
+// with DARKNESS_MILESTONE_SNAPSHOTS=1.
 void RuntimeWriteThreadSnapshot(const char* phase);
 void RuntimeWriteCurrentThreadSnapshot(const char* phase);
+bool RuntimeMilestoneSnapshotsEnabled();
 
 #ifdef PPC_RUNTIME_FUNCTION_ENTER
 #undef PPC_RUNTIME_FUNCTION_ENTER

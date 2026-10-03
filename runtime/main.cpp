@@ -14,6 +14,7 @@
 #include "runtime_stick_look.h"
 #include "runtime_widescreen.h"
 #include "runtime_language_pack.h"
+#include "runtime_button_prompts.h"
 #include "pc_settings_ui.h"
 #include "product_name.h"
 #include "runtime_settings_service.h"
@@ -23,16 +24,19 @@
 #include "runtime_pc_settings.h"
 #include "runtime_auto_scale.h"
 #include "runtime_gpu_calibration.h"
+#include "runtime_game_setup.h"
 #include "runtime_package_validation.h"
 #include "runtime_single_instance.h"
 #include "runtime_source_memory_coordinator.h"
 #include "runtime_owned_camera_mode.h"
 #include "runtime_threads.h"
+#include "runtime_user_data.h"
 #include "runtime_xam.h"
 #include "ppc_recomp_shared.h"
 
 #include <Windows.h>
 #include <DbgHelp.h>
+#include <shellapi.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -192,7 +196,7 @@ T ResolveMemoryApi(const char* name) {
     return reinterpret_cast<T>(function);
 }
 
-std::vector<uint8_t> ReadFile(const char* path) {
+std::vector<uint8_t> ReadFile(const std::filesystem::path& path) {
     std::ifstream stream(path, std::ios::binary | std::ios::ate);
     if (!stream) throw std::runtime_error("unable to open XEX");
     const auto size = stream.tellg();
@@ -325,6 +329,23 @@ void RegisterFunctions(uint8_t* base) {
     throw std::runtime_error(std::string("unresolved guest import ") + importName);
 }
 
+// The command line as UTF-8: paths beyond the system code page (a Saved
+// Games folder under a user name in another script) survive.
+std::vector<std::string> Utf8Arguments(int argc, char** argv) {
+    std::vector<std::string> arguments;
+    int count = 0;
+    LPWSTR* wide = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (wide && count == argc) {
+        for (int index = 0; index < count; ++index) {
+            arguments.push_back(std::filesystem::path(wide[index]).u8string());
+        }
+    } else {
+        arguments.assign(argv, argv + argc);
+    }
+    if (wide) LocalFree(wide);
+    return arguments;
+}
+
 // Hybrid-graphics laptops: ask the NVIDIA Optimus and AMD PowerXpress
 // drivers for the discrete GPU (read from the executable's exports).
 extern "C" {
@@ -380,12 +401,47 @@ int main(int argc, char** argv) {
                   << " scope=qualified_current_input_not_temporal_validity\n";
         std::cout << "SOURCE_MEMORY_TRACKING enabled=" << (sourceTracking ? 1 : 0)
                   << " scope=diagnostic_payload_serialization_not_gpu_camera_identity\n";
-        std::vector<const char*> launchArguments(argv, argv + argc);
+        const std::vector<std::string> utf8Arguments = Utf8Arguments(argc, argv);
+        std::vector<const char*> launchArguments;
+        for (const std::string& argument : utf8Arguments) launchArguments.push_back(argument.c_str());
         const std::filesystem::path executableDirectory =
             RuntimeExecutableDirectory();
-        const RuntimeLaunchOptions launchOptions = ParseRuntimeLaunchOptions(
-            argc, launchArguments.data(), executableDirectory);
+        // Saves and settings: Saved Games\Estacado, the game folder with
+        // portable.txt (runtime_user_data.h).
+        RuntimeUserDataLayout userData = RuntimeDetectUserDataLayout(executableDirectory);
+        RuntimeLaunchOptions launchOptions = ParseRuntimeLaunchOptions(
+            int(launchArguments.size()), launchArguments.data(), executableDirectory, userData);
         gameStart = launchOptions.action == RuntimeLaunchAction::Run;
+        if (gameStart && !launchOptions.userDataRootExplicit && userData.migrationPending) {
+            // First start after an update from 0.9.0: copy the game folder's
+            // saves and settings (the game folder stays in use if that fails).
+            RuntimeUserDataCopy copy;
+            userData = RuntimeMigrateGameFolderUserData(userData, copy);
+            for (const std::string& line : copy.lines) std::cout << "USER_DATA_COPY " << line << '\n';
+            if (!copy.ok) {
+                std::cout << "USER_DATA_COPY failed=1 using=game_folder error=" << copy.error << '\n';
+            }
+            launchOptions = ParseRuntimeLaunchOptions(int(launchArguments.size()),
+                                                      launchArguments.data(),
+                                                      executableDirectory, userData);
+        }
+        if (gameStart && !launchOptions.pcConfigExplicit) {
+            // 0.9.1 keyboard defaults (use on E, jump on Space): a 0.9.0
+            // configuration whose two keys were never changed gets them
+            // (runtime_pc_settings.h). Serialized with the launcher's saves.
+            RuntimeSingleInstance configLock(RuntimeConfigLockName(launchOptions.pcConfigPath));
+            if (configLock.acquired()) {
+                std::string error;
+                const RuntimeKeyBindingsUpgrade upgrade =
+                    RuntimeUpgradePcConfigFileKeyBindings(launchOptions.pcConfigPath, &error);
+                if (upgrade.changed || !error.empty()) {
+                    std::cout << "PC_CONFIG_KEY_BINDINGS revision=" << kRuntimeKeyBindingsRevision
+                              << " outcome=" << upgrade.outcome
+                              << " swapped=" << (upgrade.swapped ? 1 : 0)
+                              << (error.empty() ? std::string() : " error=" + error) << '\n';
+                }
+            }
+        }
         const wchar_t* coverage = _wgetenv(L"DARKNESS_FUNCTION_COVERAGE");
         if (!coverage || !*coverage) coverage = _wgetenv(L"REX_FUNCTION_COVERAGE");
         if (gameStart && coverage && *coverage) {
@@ -396,23 +452,27 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (launchOptions.action == RuntimeLaunchAction::PrintPaths) {
-            std::cout << "XEX_PATH=" << launchOptions.xexPath.string() << '\n'
+            std::cout << "XEX_PATH=" << launchOptions.xexPath.u8string() << '\n'
                       << "XEX_EXISTS="
                       << (std::filesystem::is_regular_file(launchOptions.xexPath) ? 1 : 0)
                       << '\n'
-                      << "PC_CONFIG_PATH=" << launchOptions.pcConfigPath.string() << '\n'
+                      << "PC_CONFIG_PATH=" << launchOptions.pcConfigPath.u8string() << '\n'
                       << "PC_CONFIG_EXISTS="
                       << (std::filesystem::is_regular_file(launchOptions.pcConfigPath) ? 1 : 0)
                       << '\n'
-                      << "MOD_CONFIG_PATH=" << launchOptions.modsConfigPath.string() << '\n'
+                      << "MOD_CONFIG_PATH=" << launchOptions.modsConfigPath.u8string() << '\n'
                       << "MOD_CONFIG_EXISTS="
                       << (std::filesystem::is_regular_file(launchOptions.modsConfigPath) ? 1 : 0)
                       << '\n'
-                      << "USER_DATA_ROOT=" << launchOptions.userDataRoot.string() << '\n'
+                      << "USER_DATA_MODE="
+                      << (launchOptions.userDataRootExplicit ? "explicit"
+                                                             : RuntimeUserDataModeName(userData.mode))
+                      << '\n'
+                      << "USER_DATA_ROOT=" << launchOptions.userDataRoot.u8string() << '\n'
                       << "CONTENT_ROOT="
-                      << (launchOptions.userDataRoot / L"content").string() << '\n'
+                      << (launchOptions.userDataRoot / L"content").u8string() << '\n'
                       << "SCREENSHOT_ROOT="
-                      << (launchOptions.userDataRoot / L"screenshots").string() << '\n';
+                      << (launchOptions.userDataRoot / L"screenshots").u8string() << '\n';
             return 0;
         }
         if (launchOptions.action == RuntimeLaunchAction::ListPresets) {
@@ -449,7 +509,9 @@ int main(int argc, char** argv) {
             const std::string firstError = packageValidation.errors.empty()
                 ? "unknown validation error"
                 : packageValidation.errors.front();
-            throw std::runtime_error("invalid runtime package: " + firstError);
+            throw std::runtime_error("invalid runtime package: " + firstError +
+                                     " (extract the whole zip again into an empty folder and keep "
+                                     "its folders)");
         }
         if (launchOptions.action == RuntimeLaunchAction::ValidateMods) {
             try {
@@ -516,7 +578,7 @@ int main(int argc, char** argv) {
                 ? "unknown validation error"
                 : pcConfigValidation.errors.front();
             throw std::runtime_error("invalid PC configuration '" +
-                                     startupPcConfigPath.string() +
+                                     startupPcConfigPath.u8string() +
                                      "': " + firstError);
         }
         for (const std::string& warning : pcConfigValidation.warnings) {
@@ -559,7 +621,6 @@ int main(int argc, char** argv) {
                 "another " DARKNESS_PRODUCT_NAME " title instance is already running");
         }
         std::cout << "RUNTIME_INSTANCE_LOCK acquired=1 title=0x545407EE\n";
-        const std::string xexPath = launchOptions.xexPath.string();
         ConfigureGuestPortableContentDeviceRoot(
             launchOptions.userDataRoot / L"content");
         const auto startupExampleConfig = RuntimePcConfigSnapshot::Capture(
@@ -578,7 +639,7 @@ int main(int argc, char** argv) {
         {
             std::string shelvedTemporalAa;
             graphicsPcConfigContents = RuntimePcConfigWithShelvedFeatures(
-                graphicsPcConfigContents, startupPcConfig.origin().string(),
+                graphicsPcConfigContents, startupPcConfig.origin().u8string(),
                 PcExperimentalFeature("temporal_aa"), &shelvedTemporalAa);
             if (!shelvedTemporalAa.empty()) {
                 std::cout << "PC_CONFIG_SHELVED temporal_aa=" << shelvedTemporalAa
@@ -589,7 +650,7 @@ int main(int argc, char** argv) {
         RuntimeAutoScale automaticScale{};
         if (startupPcConfig.present()) {
             const RuntimePcScaleTarget scaleTarget = RuntimePcScaleTargetFromContents(
-                graphicsPcConfigContents, startupPcConfig.origin().string());
+                graphicsPcConfigContents, startupPcConfig.origin().u8string());
             if (scaleTarget.resolutionScale == 0) {
                 automaticScale = RuntimeDetectAutomaticScale(scaleTarget.outputResolution,
                                                              scaleTarget.monitor);
@@ -632,7 +693,7 @@ int main(int argc, char** argv) {
                               << "\"\n";
                 }
                 graphicsPcConfigContents = RuntimePcConfigWithAutomaticScale(
-                    graphicsPcConfigContents, startupPcConfig.origin().string(),
+                    graphicsPcConfigContents, startupPcConfig.origin().u8string(),
                     automaticScale.scale, &automaticScaleResolved);
             }
         }
@@ -650,7 +711,7 @@ int main(int argc, char** argv) {
         if (!guestDisplay.Widescreen() && startupPcConfig.present() &&
             RuntimeWidescreenFromPcConfig(startupPcConfigPath, &startupPcConfig)) {
             const RuntimePcScaleTarget outputTarget = RuntimePcScaleTargetFromContents(
-                graphicsPcConfigContents, startupPcConfig.origin().string());
+                graphicsPcConfigContents, startupPcConfig.origin().u8string());
             const RuntimeAutoScale output =
                 RuntimeDetectAutomaticScale(outputTarget.outputResolution, outputTarget.monitor);
             guestDisplay =
@@ -676,13 +737,26 @@ int main(int argc, char** argv) {
         }
         ConfigureRuntimeGraphicsPcConfig(
             startupPcConfig.present()
-                ? startupPcConfig.WithContents(RuntimePcConfigWithLanguageTextures(
-                      RuntimePcConfigWithGuestDisplaySize(
-                          RuntimePcConfigWithTitleScaleRequirements(
-                              graphicsPcConfigContents, startupPcConfig.origin().string(),
-                              &titleScaleRequirementsAdded),
-                          guestDisplay),
-                      languagePack.textures))
+                ? startupPcConfig.WithContents(RuntimePcConfigWithProgramCacheSource(
+                      RuntimePcConfigWithPromptIconSource(
+                          RuntimePcConfigWithLanguageTextures(
+                              RuntimePcConfigWithGuestDisplaySize(
+                                  RuntimePcConfigWithTitleScaleRequirements(
+                                      graphicsPcConfigContents,
+                                      startupPcConfig.origin().u8string(),
+                                      &titleScaleRequirementsAdded),
+                                  guestDisplay),
+                              languagePack.textures),
+                          // Keyboard button prompts: the title's controller
+                          // icons are recognised by their texels in its GUI
+                          // textures.
+                          launchOptions.xexPath.parent_path() / L"Content" / L"Textures" /
+                              L"GUI.xtc"),
+                      // First-visit stutter (#5): the shader prewarm rebuilds
+                      // the packaged shader list from the title's own
+                      // compiled shader cache.
+                      launchOptions.xexPath.parent_path() / L"System" / L"Xenon" /
+                          L"ProgramCache.xpc"))
                 : startupPcConfig,
             executableDirectory);
         if (titleScaleRequirementsAdded) {
@@ -745,7 +819,9 @@ int main(int argc, char** argv) {
         std::cout << "EXPERIMENT_ONE_VBLANK enabled="
                   << (launchOptions.oneVblankExperiment ? 1 : 0)
                   << " status=UNVALIDATED_RENDER_DEADLINE_ONLY\n";
-        std::cout << "PC_CONFIG_PATH=" << launchOptions.pcConfigPath.string()
+        std::cout << RuntimeUserDataLine(userData)
+                  << (launchOptions.userDataRootExplicit ? " overridden=1" : "") << '\n';
+        std::cout << "PC_CONFIG_PATH=" << launchOptions.pcConfigPath.u8string()
                   << " exists=" << (startupPcConfig.present() && !startupFromPackagedDefaults ? 1 : 0)
                   << " source=owned_startup_snapshot bytes=" << startupPcConfig.contents().size()
                   << " defaults=" << (startupFromPackagedDefaults ? "packaged_example" : "none")
@@ -766,14 +842,14 @@ int main(int argc, char** argv) {
         std::cout << "AUDIO_MASTER_VOLUME_Q16="
                   << RuntimeAudioMasterVolumeQ16() << '\n';
         std::cout << "XBOX_LANGUAGE=" << xboxLanguage << '\n';
-        std::cout << "USER_DATA_ROOT=" << launchOptions.userDataRoot.string()
-                  << " content_root=" << GuestPortableContentDeviceRoot().string()
+        std::cout << "USER_DATA_ROOT=" << launchOptions.userDataRoot.u8string()
+                  << " content_root=" << GuestPortableContentDeviceRoot().u8string()
                   << " screenshot_root="
-                  << (launchOptions.userDataRoot / L"screenshots").string()
+                  << (launchOptions.userDataRoot / L"screenshots").u8string()
                   << '\n';
         const std::filesystem::path gameRoot = launchOptions.xexPath.parent_path();
         GetGuestFileSystem().SetGameRoot(gameRoot);
-        std::cout << "GAME_CONTENT_ROOT=" << gameRoot.string() << '\n';
+        std::cout << "GAME_CONTENT_ROOT=" << gameRoot.u8string() << '\n';
         const RuntimeModConfiguration mods = LoadRuntimeModConfiguration(
             launchOptions.modsConfigPath, executableDirectory);
         GetGuestFileSystem().SetContentOverlays(mods.layers);
@@ -792,7 +868,7 @@ int main(int argc, char** argv) {
                       << " textures=" << (languagePack.textures.empty() ? 0 : 1)
                       << " cube_atlas=" << (languagePack.cubeAtlas ? 1 : 0) << '\n';
         }
-        std::cout << "MOD_CONFIG_PATH=" << mods.manifestPath.string()
+        std::cout << "MOD_CONFIG_PATH=" << mods.manifestPath.u8string()
                   << " present=" << (mods.manifestPresent ? 1 : 0)
                   << " enabled=" << (mods.enabled ? 1 : 0)
                   << " layers=" << mods.layers.size()
@@ -800,14 +876,38 @@ int main(int argc, char** argv) {
         for (const auto& layer : mods.layers) {
             std::cout << "MOD_LAYER id=" << layer.id
                       << " priority=" << layer.priority
-                      << " root=" << layer.root.string() << '\n';
+                      << " root=" << layer.root.u8string() << '\n';
         }
         for (const auto& conflict : mods.conflicts) {
             std::cout << "MOD_CONFLICT path=" << conflict.relativePath.generic_string()
                       << " winner=" << conflict.winnerId
                       << " shadowed=" << conflict.shadowedId << '\n';
         }
-        const auto xex = ReadFile(xexPath.c_str());
+        const auto xex = ReadFile(launchOptions.xexPath);
+        {
+            // 0.9.1: the supported executable or a copy with the same code
+            // (runtime_game_setup.h); anything else would run mismatched code.
+            namespace setup = darkness::game_setup;
+            const setup::XexIdentity identity = setup::IdentifyXex(xex.data(), xex.size());
+            std::cout << "XEX_IDENTITY match="
+                      << (identity.match == setup::XexMatch::kSupported  ? "supported"
+                          : identity.match == setup::XexMatch::kSameCode ? "same_code"
+                          : identity.match == setup::XexMatch::kDifferentCode
+                              ? "different_code"
+                              : "not_readable")
+                      << " sha256=" << identity.fileSha256 << '\n';
+            if (identity.match != setup::XexMatch::kSupported &&
+                identity.match != setup::XexMatch::kSameCode) {
+                std::error_code reportError;
+                const std::filesystem::path logs = executableDirectory / L"logs";
+                std::filesystem::create_directories(logs, reportError);
+                std::ofstream(logs / L"game_version_report.txt", std::ios::binary | std::ios::trunc)
+                    << setup::XexIdentityReport(identity, launchOptions.xexPath.u8string());
+                throw std::runtime_error(
+                    setup::XexMatchText(identity) +
+                    " A detailed report is in logs\\game_version_report.txt.");
+            }
+        }
         ConfigureExecutableSystemFlags(xex.data(), xex.size());
         std::cout << "XEX_READ bytes=" << xex.size() << '\n';
         const Image image = Image::ParseImage(xex.data(), xex.size());
@@ -837,7 +937,7 @@ int main(int argc, char** argv) {
         ConfigureRuntimeGraphicsCache(graphicsCache.root,
                                       ExecutableTitleId());
         std::cout << "GRAPHICS_CACHE_IDENTITY root="
-                  << graphicsCache.root.string() << " title=0x" << std::hex
+                  << graphicsCache.root.u8string() << " title=0x" << std::hex
                   << ExecutableTitleId() << std::dec
                   << " xex_sha256=" << graphicsCache.executableSha256
                   << " environment_overrides="
@@ -859,7 +959,7 @@ int main(int argc, char** argv) {
                   << " settings_source="
                   << (graphicsCache.settingsSource.empty()
                           ? std::string("built-in-defaults")
-                          : graphicsCache.settingsSource.string())
+                          : graphicsCache.settingsSource.u8string())
                   << '\n';
         std::vector<uint32_t> achievementIds;
         achievementIds.reserve(ExecutableAchievements().size());

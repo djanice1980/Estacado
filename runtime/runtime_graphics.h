@@ -71,6 +71,12 @@ bool RuntimeGraphicsGuestPhysicalRange(uint32_t address, uint32_t bytes,
 
 // Diagnostic-only correlation marker. It never changes GPU or guest state;
 // an updated ReXGlue plugin uses it to timestamp the next bounded swaps.
+// Keyboard button prompts (0.9.1): the device of the latest player input
+// (1 = controller, 2 = keyboard/mouse), reported when it changes; and the
+// plugin's prompt state: bit 0 = keyboard prompts wanted, bits 8-31 = labels
+// generation, labels as "button=label" lines in the buffer.
+void RuntimeGraphicsNoteInputDevice(uint32_t device) noexcept;
+uint32_t RuntimeGraphicsPromptLabels(char* buffer, uint32_t size) noexcept;
 void RuntimeGraphicsNoteInputTransition(int64_t host_performance_counter,
                                         int64_t host_performance_frequency,
                                         uint32_t packet_number,

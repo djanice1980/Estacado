@@ -281,3 +281,45 @@ inline uint32_t RuntimeViewFovTitleBits(const RuntimeViewFovScaling& last,
                                         uint32_t current_bits) noexcept {
     return last.scaled_bits && current_bits == last.scaled_bits ? last.title_bits : current_bits;
 }
+
+// 0.9.1 (#6): the title animates its FOV (aim zoom) in the 30 Hz world tick
+// while the view turns every frame, so above 30 FPS the zoom advanced in
+// visible steps. The rendered FOV follows the title's value linearly over one
+// tick from where it was shown when the value changed (at most one tick
+// behind, like interpolated rendering), every frame. The title's own value is
+// untouched (gameplay timing unchanged); frames 25 ms or more apart (30 FPS
+// and below) and jumps above kMaxStepDegrees (cuts, scripted camera changes)
+// show the title's value at once.
+struct RuntimeFovSmoother {
+    static constexpr double kTickSeconds = 1.0 / 30.0;
+    static constexpr double kSlowFrameSeconds = 0.025;
+    static constexpr float kMaxStepDegrees = 15.0f;
+
+    bool started = false;
+    float from = 0.0f;    // shown when the title's value last changed
+    float target = 0.0f;  // the title's value
+    double change_seconds = 0.0;
+    double last_frame_seconds = 0.0;
+
+    float Shown(double now) const noexcept {
+        const double alpha = std::clamp((now - change_seconds) / kTickSeconds, 0.0, 1.0);
+        return float(double(from) + (double(target) - double(from)) * alpha);
+    }
+    float Next(float title, double now) noexcept {
+        const bool slow = !started || now - last_frame_seconds >= kSlowFrameSeconds;
+        last_frame_seconds = now;
+        if (!std::isfinite(title)) return title;
+        if (slow || std::fabs(title - target) > kMaxStepDegrees) {
+            started = true;
+            from = target = title;
+            change_seconds = now;
+            return title;
+        }
+        if (title != target) {
+            from = Shown(now);
+            target = title;
+            change_seconds = now;
+        }
+        return Shown(now);
+    }
+};

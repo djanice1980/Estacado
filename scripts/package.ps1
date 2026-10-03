@@ -22,12 +22,22 @@ param(
     # launcher installs it in one click.
     [string]$LanguagePack = '',
     # Extra documents for the package root (for example a tester guide).
-    [string[]]$ExtraFile = @()
+    [string[]]$ExtraFile = @(),
+    # 0.9.1 (#5): a folder with the data-free pipeline list - <title>.xshi
+    # (shader hashes, sizes and a hash of their first bytes),
+    # <title>.rtv.d3d12.xpso (pipeline descriptions keyed by shader hashes)
+    # and <title>.xshp (which ProgramCache shader each one is, plus the
+    # vertex-fetch bindings the console's Direct3D patches in), no shader
+    # code - carried as runtime_data/pipeline_seed, so the first start
+    # rebuilds the shaders from the player's own ProgramCache.xpc and
+    # compiles every pipeline before it is needed.
+    [string]$PipelineList = ''
 )
 # Builds a player package from the build outputs: the executables, the ReXGlue
 # DLLs, the optional SDK runtime DLLs, presets, example configurations and the
 # licence texts. Nothing derived from the game other than the recompiled
-# executable goes in: no shader or pipeline caches, no replacement packs, no
+# executable goes in: no shader code or caches (the optional pipeline list
+# names shaders by hash only), no replacement packs, no
 # saves, settings, logs or installed language packs (a pack archive holds
 # only our own files and patches). A manifest with SHA-256 hashes of our own
 # runtime files lets the runtime check them at every start and with
@@ -153,6 +163,12 @@ folder of your choice (not inside *Program Files*). Or build it yourself: see
 if ($LanguagePack) {
     Add-File ([IO.Path]::GetFullPath($LanguagePack)) 'language_packs/arabic_language_pack.zip' -Unchecked
 }
+if ($PipelineList) {
+    $listRoot = [IO.Path]::GetFullPath($PipelineList)
+    foreach ($name in '545407EE.xshi', '545407EE.xshp', '545407EE.rtv.d3d12.xpso') {
+        Add-File (Join-Path $listRoot $name) ('runtime_data/pipeline_seed/' + $name)
+    }
+}
 foreach ($extra in $ExtraFile) {
     $source = [IO.Path]::GetFullPath($extra)
     Add-File $source ([IO.Path]::GetFileName($source)) -Unchecked
@@ -173,14 +189,23 @@ foreach ($file in $files | Where-Object Checked) {
 [IO.File]::WriteAllText((Join-Path $out 'TheDarkness.package.toml'), $manifest.ToString(),
     [Text.UTF8Encoding]::new($false))
 
-# Nothing derived from the game besides TheDarkness.exe.
+# Nothing derived from the game besides TheDarkness.exe and the data-free
+# pipeline list (hashes and render states, no shader code).
+$allowedList = @('runtime_data/pipeline_seed/545407EE.xshi', 'runtime_data/pipeline_seed/545407EE.xshp',
+                 'runtime_data/pipeline_seed/545407EE.rtv.d3d12.xpso')
 $forbidden = @('*.xex', '*.xsrp', '*.xsh', '*.xpso', '*.xfc', '*.xcd', '*.xtc', '*.xdf', '*.iso',
                'TheDarkness.pc.toml')
 foreach ($pattern in $forbidden) {
-    $hit = @(Get-ChildItem -LiteralPath $out -Recurse -File -Filter $pattern)
+    $hit = @(Get-ChildItem -LiteralPath $out -Recurse -File -Filter $pattern | Where-Object {
+        $relative = $_.FullName.Substring($out.Length + 1).Replace('\', '/')
+        $relative -notin $allowedList })
     if ($hit.Count) { throw "package contains $pattern" }
 }
-if (Test-Path -LiteralPath (Join-Path $out 'runtime_data')) { throw 'package contains runtime_data' }
+if (Test-Path -LiteralPath (Join-Path $out 'runtime_data')) {
+    $extraData = @(Get-ChildItem -LiteralPath (Join-Path $out 'runtime_data') -Recurse -File | Where-Object {
+        $_.FullName.Substring($out.Length + 1).Replace('\', '/') -notin $allowedList })
+    if ($extraData.Count) { throw "package contains runtime_data beyond the pipeline list: $($extraData[0].Name)" }
+}
 # A player package names no path of this machine (the repository, the user
 # profile) in any file: ASCII and UTF-16 texts inside the binaries included.
 if ($Player) {
@@ -202,6 +227,16 @@ Write-Host "package: $out ($($files.Count) files)"
 if ($Zip) {
     $zipPath = "$out.zip"
     if (Test-Path -LiteralPath $zipPath) { throw "$zipPath already exists" }
-    Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zipPath
+    # bsdtar (Windows 10 1803+) writes folder entries and Unix permissions, so
+    # Linux archive tools (Steam Deck) extract the presets and licenses folders
+    # readable (#2); Compress-Archive is the fallback.
+    $bsdtar = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (Test-Path -LiteralPath $bsdtar -PathType Leaf) {
+        $items = @(Get-ChildItem -LiteralPath $out -Name)
+        & $bsdtar -a -c -f $zipPath -C $out @items
+        if ($LASTEXITCODE -ne 0) { throw "tar.exe failed with exit code $LASTEXITCODE" }
+    } else {
+        Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zipPath
+    }
     Write-Host "zip: $zipPath"
 }

@@ -1,6 +1,8 @@
 #include "runtime_input.h"
 #include "runtime_input_capabilities_cache.h"
 #include "runtime_input_empty_slot_gate.h"
+#include "runtime_input_slot_routing.h"
+#include "runtime_button_prompts.h"
 
 #include "runtime_graphics.h"
 
@@ -19,6 +21,8 @@
 #include <cstdarg>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -85,6 +89,22 @@ void NoteXInputStateResult(DWORD userIndex, DWORD result) {
 // Empty slots skip the native state and vibration calls between re-probes
 // (see runtime_input_empty_slot_gate.h for the hot-plug contract).
 RuntimeInputEmptySlotGate<XUSER_MAX_COUNT> emptySlotGate;
+
+// Single-player routing (runtime_input_slot_routing.h, issue #8): every
+// physical controller and the keyboard/mouse drive guest user 0, the one
+// with the signed-in profile. DARKNESS_INPUT_ROUTING=console keeps the 1:1
+// slot mapping (developer checks). The router runs under mergedInputSlots[0].
+bool RuntimeInputRoutingSinglePlayer() {
+    static const bool single = [] {
+        const char* mode = std::getenv("DARKNESS_INPUT_ROUTING");
+        return !(mode && std::strcmp(mode, "console") == 0);
+    }();
+    return single;
+}
+RuntimeInputSlotRouter inputSlotRouter;
+std::atomic<uint32_t> routedActiveSlot{RuntimeInputSlotRouter::kNone};
+std::mutex routedVibrationMutex;
+uint32_t routedVibrationSlot = RuntimeInputSlotRouter::kNone;
 
 XInputGetStateFn ResolveXInputGetState() {
     static XInputGetStateFn function = [] {
@@ -404,6 +424,16 @@ uint64_t RuntimeInputButtonMapCode() noexcept {
     return runtimeInputButtonMapCode.load(std::memory_order_acquire);
 }
 
+// Native state of one host slot through the empty-slot gate.
+DWORD PollHostXInputState(uint32_t slot, XINPUT_STATE& native, uint64_t nowMs) {
+    DWORD result = ERROR_DEVICE_NOT_CONNECTED;
+    if (!emptySlotGate.SkipNative(slot, nowMs)) {
+        result = ResolveXInputGetState()(slot, &native);
+        emptySlotGate.Note(slot, result != ERROR_DEVICE_NOT_CONNECTED, nowMs);
+    }
+    return result;
+}
+
 uint32_t QueryGuestInputCapabilities(uint8_t* base, uint32_t userIndex,
                                      uint32_t flags, uint32_t output) {
     if (!output || output > UINT32_MAX - kGuestCapabilitiesSize) {
@@ -417,12 +447,18 @@ uint32_t QueryGuestInputCapabilities(uint8_t* base, uint32_t userIndex,
     if ((actualUserIndex & 0xFFu) == 0xFFu || (flags & kXInputFlagAnyUser)) {
         actualUserIndex = 0;
     }
+    const bool routed = RuntimeInputRoutingSinglePlayer();
+    if (routed && actualUserIndex != 0) return kXErrorDeviceNotConnected;
+    const uint32_t padSlot = routed ? routedActiveSlot.load(std::memory_order_acquire)
+                                    : actualUserIndex;
 
     XINPUT_CAPABILITIES native{};
     const DWORD hostFlags = flags & ~kXInputDeviceTypeKeyboard;
-    const DWORD result = CachedXInputGetCapabilities(actualUserIndex, hostFlags, &native);
-    const bool keyboardMouse =
-        RuntimeGraphicsKeyboardMouseEnabled(actualUserIndex);
+    const DWORD result = padSlot < XUSER_MAX_COUNT
+        ? CachedXInputGetCapabilities(padSlot, hostFlags, &native)
+        : DWORD(ERROR_DEVICE_NOT_CONNECTED);
+    const bool keyboardMouse = RuntimeGraphicsKeyboardMouseEnabled(
+        routed ? RuntimeGraphicsKeyboardMouseUserIndex() : actualUserIndex);
     if (result != ERROR_SUCCESS && !keyboardMouse) return result;
 
     RuntimeInputCapabilities guest{};
@@ -468,10 +504,16 @@ uint32_t QueryGuestInputState(uint8_t* base, uint32_t userIndex,
     if ((actualUserIndex & 0xFFu) == 0xFFu || (flags & kXInputFlagAnyUser)) {
         actualUserIndex = 0;
     }
+    const bool routed = RuntimeInputRoutingSinglePlayer();
+    if (routed && actualUserIndex != 0) return kXErrorDeviceNotConnected;
+    const uint32_t keyboardMouseIndex =
+        routed ? RuntimeGraphicsKeyboardMouseUserIndex() : actualUserIndex;
 
-    // Only the opt-in merged slot is serialized, including both physical polls
-    // and guest publication. Original direct XInput keeps its original path.
-    const bool mergedDevice = RuntimeGraphicsKeyboardMouseEnabled(actualUserIndex);
+    // Only the merged slot is serialized, including both physical polls and
+    // guest publication: the routed player 1 (any pad plus keyboard/mouse,
+    // one packet sequence across pad switches) or the opt-in keyboard/mouse
+    // slot of the console mapping. Direct XInput keeps its original path.
+    const bool mergedDevice = routed || RuntimeGraphicsKeyboardMouseEnabled(actualUserIndex);
     RuntimeMergedInputSlot* mergedSlot = mergedDevice && actualUserIndex < mergedInputSlots.size()
         ? &mergedInputSlots[actualUserIndex] : nullptr;
     std::unique_lock<std::mutex> mergedLock;
@@ -479,14 +521,55 @@ uint32_t QueryGuestInputState(uint8_t* base, uint32_t userIndex,
     XINPUT_STATE native{};
     const uint64_t nowMs = GetTickCount64();
     DWORD result = ERROR_DEVICE_NOT_CONNECTED;
-    if (!emptySlotGate.SkipNative(actualUserIndex, nowMs)) {
-        result = ResolveXInputGetState()(actualUserIndex, &native);
-        emptySlotGate.Note(actualUserIndex, result != ERROR_DEVICE_NOT_CONNECTED, nowMs);
+    if (routed) {
+        std::array<XINPUT_STATE, XUSER_MAX_COUNT> slots{};
+        std::array<DWORD, XUSER_MAX_COUNT> results{};
+        for (uint32_t slot = 0; slot < XUSER_MAX_COUNT; ++slot) {
+            results[slot] = PollHostXInputState(slot, slots[slot], nowMs);
+            NoteXInputStateResult(slot, results[slot]);
+            inputSlotRouter.Observe(slot, results[slot] == ERROR_SUCCESS,
+                                    slots[slot].Gamepad.wButtons);
+        }
+        const uint32_t active = inputSlotRouter.Finish();
+        if (routedActiveSlot.exchange(active, std::memory_order_acq_rel) != active) {
+            std::fprintf(stderr, "RUNTIME_INPUT_ROUTING mode=single active_slot=%d\n",
+                         active < XUSER_MAX_COUNT ? int(active) : -1);
+            std::fflush(stderr);
+        }
+        if (active < XUSER_MAX_COUNT) {
+            native = slots[active];
+            result = results[active];
+        }
+    } else {
+        result = PollHostXInputState(actualUserIndex, native, nowMs);
+        NoteXInputStateResult(actualUserIndex, result);
     }
-    NoteXInputStateResult(actualUserIndex, result);
     RuntimeGraphicsHostInputState keyboardMouseNative{};
     const bool keyboardMouse = RuntimeGraphicsPollKeyboardMouse(
-        actualUserIndex, keyboardMouseNative);
+        keyboardMouseIndex, keyboardMouseNative);
+    if (actualUserIndex == 0) {
+        // Button prompts follow the device of the latest player input
+        // (runtime_button_prompts.h).
+        static std::atomic<uint16_t> previousControllerButtons{0};
+        const uint16_t controllerButtons =
+            result == ERROR_SUCCESS ? native.Gamepad.wButtons : uint16_t(0);
+        const bool controllerActivity =
+            result == ERROR_SUCCESS &&
+            RuntimeControllerActivity(
+                controllerButtons,
+                previousControllerButtons.exchange(controllerButtons, std::memory_order_relaxed),
+                native.Gamepad.bLeftTrigger, native.Gamepad.bRightTrigger,
+                native.Gamepad.sThumbLX, native.Gamepad.sThumbLY, native.Gamepad.sThumbRX,
+                native.Gamepad.sThumbRY);
+        const bool keyboardMouseActivity =
+            keyboardMouse &&
+            RuntimeKeyboardMouseActivity(
+                keyboardMouseNative.buttons, keyboardMouseNative.leftTrigger,
+                keyboardMouseNative.rightTrigger, keyboardMouseNative.thumbLX,
+                keyboardMouseNative.thumbLY, keyboardMouseNative.thumbRX,
+                keyboardMouseNative.thumbRY);
+        RuntimeNoteInputActivity(controllerActivity, keyboardMouseActivity);
+    }
     if (result != ERROR_SUCCESS && !keyboardMouse) {
         if (mergedSlot) mergedSlot->packets.Disconnect();
         return result;
@@ -537,6 +620,8 @@ uint32_t SetGuestInputVibration(uint8_t* base, uint32_t userIndex,
     uint32_t actualUserIndex = userIndex;
     if ((actualUserIndex & 0xFFu) == 0xFFu) actualUserIndex = 0;
     (void)flags;  // The reached Xbox XAM contract reserves this argument.
+    const bool routed = RuntimeInputRoutingSinglePlayer();
+    if (routed && actualUserIndex != 0) return kXErrorDeviceNotConnected;
 
     const RuntimeInputVibration guest = LoadGuestInputVibration(base, input);
     const uint32_t vibrationScale = RuntimeInputVibrationScaleQ16();
@@ -546,16 +631,28 @@ uint32_t SetGuestInputVibration(uint8_t* base, uint32_t userIndex,
     native.wRightMotorSpeed =
         ScaleRuntimeInputMotorSpeed(guest.rightMotorSpeed, vibrationScale);
     const uint64_t nowMs = GetTickCount64();
+    uint32_t padSlot = actualUserIndex;
+    if (routed) {
+        std::lock_guard<std::mutex> lock(routedVibrationMutex);
+        padSlot = routedActiveSlot.load(std::memory_order_acquire);
+        if (routedVibrationSlot != padSlot && routedVibrationSlot < XUSER_MAX_COUNT &&
+            !emptySlotGate.SkipNative(routedVibrationSlot, nowMs)) {
+            XINPUT_VIBRATION stop{};
+            ResolveXInputSetState()(routedVibrationSlot, &stop);
+        }
+        routedVibrationSlot = padSlot;
+    }
     DWORD result = ERROR_DEVICE_NOT_CONNECTED;
-    if (!emptySlotGate.SkipNative(actualUserIndex, nowMs)) {
-        result = ResolveXInputSetState()(actualUserIndex, &native);
-        emptySlotGate.Note(actualUserIndex, result != ERROR_DEVICE_NOT_CONNECTED, nowMs);
+    if (padSlot < XUSER_MAX_COUNT && !emptySlotGate.SkipNative(padSlot, nowMs)) {
+        result = ResolveXInputSetState()(padSlot, &native);
+        emptySlotGate.Note(padSlot, result != ERROR_DEVICE_NOT_CONNECTED, nowMs);
     }
     if (result == ERROR_SUCCESS) return result;
     // Keyboard/mouse represents a connected guest controller but has no
     // physical motors. Accepting vibration in that case is the truthful
     // no-actuator contract, not fabricated playback.
-    return RuntimeGraphicsKeyboardMouseEnabled(actualUserIndex)
+    return RuntimeGraphicsKeyboardMouseEnabled(
+               routed ? RuntimeGraphicsKeyboardMouseUserIndex() : actualUserIndex)
         ? ERROR_SUCCESS
         : result;
 }

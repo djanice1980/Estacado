@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <memory>
@@ -224,19 +225,226 @@ bool ListDisc(const Image& image, std::vector<DiscFile>& files, std::string* err
     return true;
 }
 
-bool HashRange(const Image& image, uint64_t offset, uint64_t size, std::string& out) {
+std::string BytesSha256Impl(const uint8_t* data, size_t size) {
     Sha256 hash;
-    std::vector<uint8_t> buffer(1u << 20);
-    while (size) {
-        const size_t chunk = size_t(std::min<uint64_t>(size, buffer.size()));
-        if (!image.Read(offset, buffer.data(), chunk) || !hash.Update(buffer.data(), chunk)) {
-            return false;
-        }
-        offset += chunk;
-        size -= chunk;
+    return hash.Update(data, size) ? hash.Finish() : std::string();
+}
+
+// --- default.xex versions (0.9.1) -----------------------------------------
+
+uint32_t Be32(const uint8_t* p) {
+    return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | uint32_t(p[3]);
+}
+uint16_t Be16(const uint8_t* p) { return uint16_t(uint32_t(p[0]) << 8 | uint32_t(p[1])); }
+uint32_t Le32(const uint8_t* p) {
+    return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+}
+uint16_t Le16(const uint8_t* p) { return uint16_t(uint32_t(p[0]) | uint32_t(p[1]) << 8); }
+
+// The retail XEX2 key (public, also in XenonUtils/xex.h).
+constexpr uint8_t kXexRetailKey[16] = {0x20, 0xB1, 0x85, 0xA5, 0x9D, 0x28, 0xFD, 0xC3,
+                                       0x40, 0x58, 0x3F, 0xBB, 0x08, 0x96, 0xBF, 0x91};
+constexpr uint32_t kXexHeaderFileFormat = 0x000003FF;
+constexpr uint32_t kXexHeaderResources = 0x000002FF;
+constexpr uint32_t kXexHeaderEntryPoint = 0x00010100;
+constexpr uint32_t kMaxImageBytes = 256u << 20;
+
+// AES-128-CBC with a zero IV over the whole 16-byte blocks of data.
+bool AesCbcDecrypt(const uint8_t (&key)[16], std::vector<uint8_t>& data) {
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    BCRYPT_KEY_HANDLE handle = nullptr;
+    bool ok = BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_AES_ALGORITHM, nullptr, 0) >= 0 &&
+              BCryptSetProperty(algorithm, BCRYPT_CHAINING_MODE,
+                                reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_CHAIN_MODE_CBC)),
+                                ULONG(sizeof(BCRYPT_CHAIN_MODE_CBC)), 0) >= 0 &&
+              BCryptGenerateSymmetricKey(algorithm, &handle, nullptr, 0,
+                                         const_cast<PUCHAR>(key), 16, 0) >= 0;
+    const size_t whole = data.size() & ~size_t(15);
+    if (ok && whole) {
+        std::vector<uint8_t> output(whole);
+        uint8_t iv[16] = {};
+        ULONG done = 0;
+        ok = BCryptDecrypt(handle, data.data(), ULONG(whole), nullptr, iv, sizeof(iv),
+                           output.data(), ULONG(whole), &done, 0) >= 0 &&
+             done == whole;
+        if (ok) std::memcpy(data.data(), output.data(), whole);
     }
-    out = hash.Finish();
-    return !out.empty();
+    if (handle) BCryptDestroyKey(handle);
+    if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
+    return ok;
+}
+
+struct DecodedXex {
+    std::vector<uint8_t> image;
+    // Title resources (address, size), e.g. the XDBF with its strings.
+    std::vector<std::pair<uint32_t, uint32_t>> resources;
+};
+
+// Decrypts and unpacks a XEX2 (no or basic compression), checking every
+// offset against the file: a damaged or foreign file is reported, not read
+// out of bounds.
+bool DecodeXex(const uint8_t* data, size_t size, XexIdentity& identity, DecodedXex& out) {
+    const auto fail = [&](const char* text) {
+        identity.error = text;
+        return false;
+    };
+    if (size < 24 || std::memcmp(data, "XEX2", 4) != 0) {
+        return fail("not an Xbox 360 executable (no XEX2 header)");
+    }
+    const uint32_t headerSize = Be32(data + 8);
+    const uint32_t securityOffset = Be32(data + 16);
+    const uint32_t headerCount = Be32(data + 20);
+    if (headerSize > size || headerCount > 4096 || 24 + uint64_t(headerCount) * 8 > headerSize ||
+        uint64_t(securityOffset) + 0x180 > headerSize) {
+        return fail("the executable's header is damaged");
+    }
+    uint32_t formatOffset = 0;
+    uint32_t resourceOffset = 0;
+    for (uint32_t index = 0; index < headerCount; ++index) {
+        const uint32_t key = Be32(data + 24 + index * 8);
+        const uint32_t value = Be32(data + 28 + index * 8);
+        if (key == kXexHeaderFileFormat) formatOffset = value;
+        if (key == kXexHeaderResources) resourceOffset = value;
+        if (key == kXexHeaderEntryPoint) identity.entryPoint = value;
+    }
+    const uint8_t* security = data + securityOffset;
+    identity.imageSize = Be32(security + 4);
+    identity.loadAddress = Be32(security + 0x110);
+    if (identity.imageSize == 0 || identity.imageSize > kMaxImageBytes) {
+        return fail("the executable's image size is damaged");
+    }
+    if (formatOffset == 0 || uint64_t(formatOffset) + 8 > headerSize) {
+        return fail("the executable has no file format information");
+    }
+    const uint32_t infoSize = Be32(data + formatOffset);
+    identity.encryption = Be16(data + formatOffset + 4);
+    identity.compression = Be16(data + formatOffset + 6);
+    if (infoSize < 8 || uint64_t(formatOffset) + infoSize > headerSize) {
+        return fail("the executable's file format information is damaged");
+    }
+    if (resourceOffset && uint64_t(resourceOffset) + 4 <= headerSize) {
+        const uint32_t resourceBytes = Be32(data + resourceOffset);
+        if (resourceBytes >= 4 && uint64_t(resourceOffset) + resourceBytes <= headerSize) {
+            for (uint32_t at = 4; at + 16 <= resourceBytes; at += 16) {
+                out.resources.emplace_back(Be32(data + resourceOffset + at + 8),
+                                           Be32(data + resourceOffset + at + 12));
+            }
+        }
+    }
+    std::vector<uint8_t> payload(data + headerSize, data + size);
+    if (identity.encryption == 1) {
+        uint8_t sessionKey[16];
+        std::vector<uint8_t> key(security + 0x150, security + 0x160);
+        if (!AesCbcDecrypt(kXexRetailKey, key)) return fail("unable to decrypt (AES unavailable)");
+        std::memcpy(sessionKey, key.data(), sizeof(sessionKey));
+        if (!AesCbcDecrypt(sessionKey, payload)) return fail("unable to decrypt (AES unavailable)");
+    } else if (identity.encryption != 0) {
+        return fail("the executable uses an unknown encryption");
+    }
+    out.image.assign(identity.imageSize, 0);
+    if (identity.compression == 0) {
+        std::memcpy(out.image.data(), payload.data(), std::min<size_t>(payload.size(), out.image.size()));
+    } else if (identity.compression == 1) {
+        size_t from = 0;
+        size_t to = 0;
+        for (uint32_t at = 8; at + 8 <= infoSize; at += 8) {
+            const uint32_t dataBytes = Be32(data + formatOffset + at);
+            const uint32_t zeroBytes = Be32(data + formatOffset + at + 4);
+            if (dataBytes > payload.size() - from || dataBytes > out.image.size() - to) {
+                return fail("the executable's data blocks are damaged");
+            }
+            std::memcpy(out.image.data() + to, payload.data() + from, dataBytes);
+            from += dataBytes;
+            to += dataBytes;
+            if (zeroBytes > out.image.size() - to) {
+                return fail("the executable's data blocks are damaged");
+            }
+            to += zeroBytes;
+        }
+    } else {
+        // LZX ("normal") compression: not read by this check yet.
+        return fail("the executable is packed with LZX compression, which this check does not "
+                    "read yet");
+    }
+    return true;
+}
+
+// The identity hashes of a decoded image (see XexIdentity).
+void MeasureImage(const DecodedXex& decoded, XexIdentity& identity) {
+    const std::vector<uint8_t>& image = decoded.image;
+    identity.imageSha256 = BytesSha256Impl(image.data(), image.size());
+    // PE sections (little-endian headers at the image start).
+    uint32_t rdataBegin = 0;
+    uint32_t rdataEnd = 0;
+    if (image.size() >= 0x40) {
+        const uint32_t nt = Le32(image.data() + 0x3C);
+        if (uint64_t(nt) + 24 <= image.size() && std::memcmp(image.data() + nt, "PE\0\0", 4) == 0) {
+            const uint16_t count = Le16(image.data() + nt + 6);
+            const uint16_t optional = Le16(image.data() + nt + 20);
+            const uint64_t table = uint64_t(nt) + 24 + optional;
+            for (uint16_t index = 0; index < count && table + (index + 1) * 40ull <= image.size();
+                 ++index) {
+                const uint8_t* header = image.data() + table + index * 40ull;
+                XexIdentity::Section section;
+                section.name.assign(reinterpret_cast<const char*>(header),
+                                    strnlen(reinterpret_cast<const char*>(header), 8));
+                section.size = Le32(header + 8);
+                const uint32_t rva = Le32(header + 12);
+                const uint32_t characteristics = Le32(header + 36);
+                section.address = identity.loadAddress + rva;
+                section.code = (characteristics & (0x00000020u | 0x20000000u)) != 0;
+                const uint64_t end = std::min<uint64_t>(uint64_t(rva) + section.size, image.size());
+                const uint64_t begin = std::min<uint64_t>(rva, end);
+                section.sha256 = BytesSha256Impl(image.data() + begin, size_t(end - begin));
+                if (section.name == ".rdata") {
+                    rdataBegin = uint32_t(begin);
+                    rdataEnd = uint32_t(end);
+                }
+                identity.sections.push_back(std::move(section));
+            }
+        }
+    }
+    Sha256 code;
+    for (const XexIdentity::Section& section : identity.sections) {
+        if (!section.code) continue;
+        const uint64_t rva = section.address - identity.loadAddress;
+        const uint64_t end = std::min<uint64_t>(rva + section.size, image.size());
+        const uint64_t begin = std::min<uint64_t>(rva, end);
+        code.Update(image.data() + begin, size_t(end - begin));
+    }
+    identity.codeSha256 = code.Finish();
+    // Structure: the image without .rdata and the title resources.
+    std::vector<uint8_t> structure = image;
+    if (rdataEnd > rdataBegin) {
+        std::fill(structure.begin() + rdataBegin, structure.begin() + rdataEnd, uint8_t(0));
+    }
+    for (const auto& [address, bytes] : decoded.resources) {
+        if (address < identity.loadAddress) continue;
+        const uint64_t begin = std::min<uint64_t>(address - identity.loadAddress, structure.size());
+        const uint64_t end = std::min<uint64_t>(begin + bytes, structure.size());
+        std::fill(structure.begin() + begin, structure.begin() + end, uint8_t(0));
+    }
+    identity.structureSha256 = BytesSha256Impl(structure.data(), structure.size());
+    // .rdata words that point into the image, with their offsets.
+    Sha256 pointers;
+    for (uint32_t at = (rdataBegin + 3) & ~3u; at + 4 <= rdataEnd; at += 4) {
+        const uint32_t word = Be32(image.data() + at);
+        if (word >= identity.loadAddress && word - identity.loadAddress < image.size()) {
+            const uint8_t entry[8] = {uint8_t(at >> 24), uint8_t(at >> 16), uint8_t(at >> 8),
+                                      uint8_t(at),       image[at],         image[at + 1],
+                                      image[at + 2],     image[at + 3]};
+            pointers.Update(entry, sizeof(entry));
+        }
+    }
+    identity.pointerSha256 = pointers.Finish();
+    Sha256 read;
+    for (const uint32_t address : kRuntimeReadDataAddresses) {
+        if (address < identity.loadAddress) continue;
+        const uint64_t begin = std::min<uint64_t>(address - identity.loadAddress, image.size());
+        const uint64_t end = std::min<uint64_t>(begin + 64, image.size());
+        read.Update(image.data() + begin, size_t(end - begin));
+    }
+    identity.protectedSha256 = read.Finish();
 }
 
 }  // namespace
@@ -260,6 +468,117 @@ std::string FileSha256(const std::filesystem::path& path) {
 std::string BytesSha256(const uint8_t* data, size_t size) {
     Sha256 hash;
     return hash.Update(data, size) ? hash.Finish() : std::string();
+}
+
+const char* const kSupportedStructureSha256 = "5e7d8bf08d820427fea8505f596b7ee081488cf8ee2be91872869778fc22ac0c";
+const char* const kSupportedPointerSha256 = "ba10f21a80104cc171dc4c9d23c95d47b18ba0b67123721b9d7dc6c89b24e6bc";
+const char* const kSupportedProtectedSha256 = "d1622b7ad7cbae8699192f5531d5648517e88bab9a95b4f383af09f6e851e75a";
+
+XexIdentity IdentifyXex(const uint8_t* data, size_t size, bool decodeSupported) {
+    XexIdentity identity;
+    identity.fileSha256 = BytesSha256Impl(data, size);
+    const bool supported = identity.fileSha256 == kSupportedXexSha256;
+    if (supported && !decodeSupported) {
+        identity.match = XexMatch::kSupported;
+        return identity;
+    }
+    DecodedXex decoded;
+    if (!DecodeXex(data, size, identity, decoded)) {
+        identity.match = supported ? XexMatch::kSupported : XexMatch::kNotReadable;
+        return identity;
+    }
+    identity.decoded = true;
+    MeasureImage(decoded, identity);
+    if (supported) {
+        identity.match = XexMatch::kSupported;
+    } else if (identity.loadAddress == kSupportedLoadAddress &&
+               identity.imageSize == kSupportedImageSize &&
+               identity.entryPoint == kSupportedEntryPoint &&
+               identity.codeSha256 == kSupportedCodeSha256 &&
+               identity.structureSha256 == kSupportedStructureSha256 &&
+               identity.pointerSha256 == kSupportedPointerSha256 &&
+               identity.protectedSha256 == kSupportedProtectedSha256) {
+        identity.match = XexMatch::kSameCode;
+    } else {
+        identity.match = XexMatch::kDifferentCode;
+    }
+    return identity;
+}
+
+XexIdentity IdentifyXexFile(const std::filesystem::path& path, bool decodeSupported) {
+    std::ifstream stream(path, std::ios::binary | std::ios::ate);
+    XexIdentity identity;
+    if (!stream) {
+        identity.error = "unable to open " + path.u8string();
+        return identity;
+    }
+    const std::streamoff size = stream.tellg();
+    if (size <= 0 || size > std::streamoff(kMaxImageBytes)) {
+        identity.error = "default.xex has an impossible size";
+        return identity;
+    }
+    std::vector<uint8_t> bytes(static_cast<size_t>(size));
+    stream.seekg(0);
+    stream.read(reinterpret_cast<char*>(bytes.data()), std::streamsize(size));
+    if (!stream) {
+        identity.error = "unable to read " + path.u8string();
+        return identity;
+    }
+    return IdentifyXex(bytes.data(), bytes.size(), decodeSupported);
+}
+
+std::string XexMatchText(const XexIdentity& identity) {
+    switch (identity.match) {
+        case XexMatch::kSupported:
+            return "The supported version of The Darkness (Xbox 360, USA/Europe disc).";
+        case XexMatch::kSameCode:
+            return "A version of The Darkness with the same code as the supported one (for "
+                   "example a localised release): it runs; its own texts and fonts are used.";
+        case XexMatch::kDifferentCode:
+            return "This version of The Darkness runs different code, which this release cannot "
+                   "run yet.";
+        case XexMatch::kNotReadable:
+            break;
+    }
+    return "default.xex could not be read as an Xbox 360 executable" +
+           (identity.error.empty() ? std::string(".") : ": " + identity.error + ".");
+}
+
+std::string XexIdentityReport(const XexIdentity& identity, const std::string& source) {
+    const auto hex = [](uint32_t value) {
+        char text[16];
+        std::snprintf(text, sizeof(text), "0x%08X", value);
+        return std::string(text);
+    };
+    const auto same = [](const std::string& value, const char* expected) {
+        return value == expected ? "same as the supported version" : "DIFFERENT";
+    };
+    std::ostringstream out;
+    out << "Estacado game version report (local; names, sizes and hashes only, no game data)\n"
+        << "default.xex: " << source << "\n"
+        << "file SHA-256: " << identity.fileSha256 << "\n"
+        << "result: " << XexMatchText(identity) << "\n";
+    if (!identity.error.empty()) out << "error: " << identity.error << "\n";
+    if (!identity.decoded) return out.str();
+    out << "encryption: " << identity.encryption << ", compression: " << identity.compression
+        << "\nload address: " << hex(identity.loadAddress)
+        << (identity.loadAddress == kSupportedLoadAddress ? "" : " (DIFFERENT)")
+        << "\nimage size: " << hex(identity.imageSize)
+        << (identity.imageSize == kSupportedImageSize ? "" : " (DIFFERENT)")
+        << "\nentry point: " << hex(identity.entryPoint)
+        << (identity.entryPoint == kSupportedEntryPoint ? "" : " (DIFFERENT)")
+        << "\ncode sections: " << same(identity.codeSha256, kSupportedCodeSha256)
+        << "\nstructure (all but .rdata and the title resource): "
+        << same(identity.structureSha256, kSupportedStructureSha256)
+        << "\npointers in .rdata: " << same(identity.pointerSha256, kSupportedPointerSha256)
+        << "\n.rdata the runtime reads: "
+        << same(identity.protectedSha256, kSupportedProtectedSha256)
+        << "\nimage SHA-256: " << identity.imageSha256 << "\nsections:\n";
+    for (const XexIdentity::Section& section : identity.sections) {
+        out << "  " << section.name << " " << hex(section.address) << " size " << hex(section.size)
+            << (section.code ? " code" : " data") << " sha256 " << section.sha256 << "\n";
+    }
+    return out.str();
 }
 
 std::optional<std::filesystem::path> ReadGameLocation(
@@ -335,12 +654,15 @@ GameCheck CheckGameFolder(const std::filesystem::path& folder) {
         check.status = GameStatus::kMissing;
         return check;
     }
-    check.sha256 = FileSha256(xex);
+    check.identity = IdentifyXexFile(xex);
+    check.sha256 = check.identity.fileSha256;
     if (check.sha256.empty()) {
         check.status = GameStatus::kUnreadable;
     } else {
-        check.status = check.sha256 == kSupportedXexSha256 ? GameStatus::kOk
-                                                           : GameStatus::kWrongVersion;
+        check.status = check.identity.match == XexMatch::kSupported ||
+                               check.identity.match == XexMatch::kSameCode
+                           ? GameStatus::kOk
+                           : GameStatus::kWrongVersion;
     }
     return check;
 }
@@ -358,10 +680,19 @@ DiscImageInfo InspectDiscImage(const std::filesystem::path& imagePath) {
         if (file.directory) continue;
         ++info.files;
         info.bytes += file.size;
-        if (Lower(file.relative.u8string()) == "default.xex" &&
-            !HashRange(image, file.offset, file.size, info.xexSha256)) {
-            info.error = "unable to read default.xex from the disc image";
-            return info;
+        if (Lower(file.relative.u8string()) == "default.xex") {
+            std::vector<uint8_t> bytes;
+            if (file.size == 0 || file.size > kMaxImageBytes) {
+                info.error = "default.xex in the disc image has an impossible size";
+                return info;
+            }
+            bytes.resize(size_t(file.size));
+            if (!image.Read(file.offset, bytes.data(), bytes.size())) {
+                info.error = "unable to read default.xex from the disc image";
+                return info;
+            }
+            info.xex = IdentifyXex(bytes.data(), bytes.size());
+            info.xexSha256 = info.xex.fileSha256;
         }
     }
     info.ok = true;

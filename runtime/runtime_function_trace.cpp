@@ -1,6 +1,7 @@
 #include "runtime_function_trace.h"
 
 #include "runtime_camera.h"
+#include "runtime_fatal.h"
 #include "runtime_frame_cadence.h"
 #include "runtime_present_interval_experiment.h"
 
@@ -15,6 +16,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -5217,14 +5219,33 @@ void RuntimeTraceControlRead(uint32_t address, uint32_t value, uint32_t function
     }
 }
 
+bool RuntimeMilestoneSnapshotsEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("DARKNESS_MILESTONE_SNAPSHOTS");
+        return value && value[0] == '1' && value[1] == '\0';
+    }();
+    return enabled;
+}
+
+namespace {
+// Beside runtime_crash.log, whatever the working directory.
+std::filesystem::path SnapshotLogPath(const wchar_t* name) {
+    const wchar_t* reports = RuntimeFatalDirectory();
+    const std::filesystem::path logs =
+        reports && reports[0] ? std::filesystem::path(reports) : std::filesystem::path(L"logs");
+    std::error_code error;
+    std::filesystem::create_directories(logs, error);
+    return logs / name;
+}
+}  // namespace
+
 void RuntimeWriteThreadSnapshot(const char* phase) {
     std::vector<std::shared_ptr<TraceThread>> traces;
     {
         std::lock_guard<std::mutex> lock(traceMutex);
         traces = traceThreads;
     }
-    std::filesystem::create_directories("logs");
-    std::ofstream out("logs/post_content_thread_snapshot.log", std::ios::app);
+    std::ofstream out(SnapshotLogPath(L"post_content_thread_snapshot.log"), std::ios::app);
     out << "SNAPSHOT phase=" << phase << " threads=" << traces.size() << '\n';
     for (const auto& trace : traces) {
         GuestThreadInfo info{};
@@ -5260,8 +5281,7 @@ void RuntimeWriteThreadSnapshot(const char* phase) {
 
 void RuntimeWriteCurrentThreadSnapshot(const char* phase) {
     const auto trace = CurrentTrace();
-    std::filesystem::create_directories("logs");
-    std::ofstream out("logs/m6d_content_thread_trace.log", std::ios::app);
+    std::ofstream out(SnapshotLogPath(L"m6d_content_thread_trace.log"), std::ios::app);
     out << "CURRENT_THREAD_SNAPSHOT phase=" << phase
         << " id=" << trace->id.load(std::memory_order_relaxed)
         << " object=0x" << std::hex << trace->guestObject.load(std::memory_order_relaxed)

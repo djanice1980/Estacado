@@ -89,23 +89,31 @@ int main() {
               "a probe at time 0 is gated for one interval");
     }
     {
-        // Source policy: both native state and vibration calls go through the gate.
+        // Source policy: both native state and vibration calls go through the gate
+        // (0.9.1: one gated poll per host slot, used by the routed player 1 and
+        // the console mapping alike).
         std::ifstream file(std::string(DARKNESS_SOURCE_ROOT) + "/runtime/runtime_input.cpp");
         const std::string source((std::istreambuf_iterator<char>(file)), {});
-        const auto state = source.find("result = ResolveXInputGetState()(actualUserIndex, &native);");
-        const auto vibration = source.find("result = ResolveXInputSetState()(actualUserIndex, &native);");
+        const auto state = source.find("result = ResolveXInputGetState()(slot, &native);");
+        const auto vibration = source.find("result = ResolveXInputSetState()(padSlot, &native);");
         check(state != std::string::npos && vibration != std::string::npos,
               "native state and vibration calls present");
-        check(source.rfind("if (!emptySlotGate.SkipNative(actualUserIndex, nowMs)) {", state) !=
+        check(source.rfind("if (!emptySlotGate.SkipNative(slot, nowMs)) {", state) !=
                       std::string::npos &&
-                  source.find("emptySlotGate.Note(actualUserIndex, result != ERROR_DEVICE_NOT_CONNECTED, nowMs);",
+                  source.find("emptySlotGate.Note(slot, result != ERROR_DEVICE_NOT_CONNECTED, nowMs);",
                               state) != std::string::npos,
               "state poll must be gated and noted");
-        const auto vibrationGate =
-            source.rfind("if (!emptySlotGate.SkipNative(actualUserIndex, nowMs)) {", vibration);
+        // The only native state call is the gated helper's ("result = " precedes it).
+        check(source.find("ResolveXInputGetState()(") == state + 9 &&
+                  source.find("ResolveXInputGetState()(", state + 10) == std::string::npos,
+              "every native state poll goes through the gated helper");
+        const auto vibrationGate = source.rfind(
+            "if (padSlot < XUSER_MAX_COUNT && !emptySlotGate.SkipNative(padSlot, nowMs)) {", vibration);
         check(vibrationGate != std::string::npos && vibrationGate > state,
               "vibration must be gated");
-        check(source.find("NoteXInputStateResult(actualUserIndex, result);", state) != std::string::npos,
+        check(source.find("NoteXInputStateResult(slot, results[slot]);", state) != std::string::npos &&
+                  source.find("NoteXInputStateResult(actualUserIndex, result);", state) !=
+                      std::string::npos,
               "capabilities cache still hears every state result");
     }
 
