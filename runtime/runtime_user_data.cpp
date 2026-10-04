@@ -85,14 +85,35 @@ bool HoldsData(const Places& places) {
            RuntimeFolderHasFiles(places.screenshots) || IsFile(places.calibration);
 }
 
-RuntimeUserDataLayout PerUserLayout(const fs::path& gameFolder, const fs::path& perUserRoot) {
+RuntimeUserDataLayout PerUserLayout(const fs::path& gameFolder, const fs::path& perUserRoot,
+                                    const fs::path& localAppData) {
     RuntimeUserDataLayout layout;
     layout.mode = RuntimeUserDataMode::kPerUser;
     layout.gameFolder = gameFolder;
     layout.perUserRoot = perUserRoot;
     layout.root = perUserRoot;
     layout.configPath = perUserRoot / kConfigName;
+    layout.localData =
+        localAppData.empty() ? gameFolder : localAppData / (L"" DARKNESS_PRODUCT_NAME);
     return layout;
+}
+
+fs::path KnownFolder(const KNOWNFOLDERID& id) {
+    PWSTR path = nullptr;
+    fs::path result;
+    if (SUCCEEDED(SHGetKnownFolderPath(id, KF_FLAG_DONT_VERIFY, nullptr, &path)) && path && *path) {
+        result = path;
+    }
+    CoTaskMemFree(path);
+    return result;
+}
+
+// %LOCALAPPDATA% (isolated tests: DARKNESS_TEST_LOCAL_APP_DATA).
+fs::path LocalAppDataFolder() {
+    if (const wchar_t* test = _wgetenv(L"DARKNESS_TEST_LOCAL_APP_DATA"); test && *test) {
+        return fs::path(test);
+    }
+    return KnownFolder(FOLDERID_LocalAppData);
 }
 
 fs::path SavedGamesFolder() {
@@ -303,7 +324,8 @@ std::string RuntimeUserDataLine(const RuntimeUserDataLayout& layout) {
                        " pending=" + (layout.migrationPending ? "1" : "0") +
                        " left_behind=" + (layout.gameFolderSavesLeftBehind ? "1" : "0");
     if (!layout.reason.empty()) line += " reason=\"" + layout.reason + "\"";
-    return line + " root=" + Utf8(layout.root) + " config=" + Utf8(layout.configPath);
+    return line + " root=" + Utf8(layout.root) + " config=" + Utf8(layout.configPath) +
+           " local=" + Utf8(layout.localData);
 }
 
 RuntimeUserDataLayout RuntimeGameFolderUserDataLayout(const fs::path& gameFolder,
@@ -314,12 +336,14 @@ RuntimeUserDataLayout RuntimeGameFolderUserDataLayout(const fs::path& gameFolder
     layout.gameFolder = gameFolder;
     layout.root = gameFolder / L"runtime_data";
     layout.configPath = gameFolder / kConfigName;
+    layout.localData = gameFolder;
     layout.reason = std::move(reason);
     return layout;
 }
 
 RuntimeUserDataLayout RuntimeUserDataLayoutFor(const fs::path& gameFolder,
-                                               const fs::path& savedGames) {
+                                               const fs::path& savedGames,
+                                               const fs::path& localAppData) {
     if (IsFile(gameFolder / kRuntimePortableMarker)) {
         return RuntimeGameFolderUserDataLayout(gameFolder, RuntimeUserDataMode::kPortable,
                                                "portable.txt");
@@ -329,7 +353,7 @@ RuntimeUserDataLayout RuntimeUserDataLayoutFor(const fs::path& gameFolder,
                                                "no Saved Games folder");
     }
     RuntimeUserDataLayout layout =
-        PerUserLayout(gameFolder, savedGames / (L"" DARKNESS_PRODUCT_NAME));
+        PerUserLayout(gameFolder, savedGames / (L"" DARKNESS_PRODUCT_NAME), localAppData);
     const Places old = GameFolderPlaces(gameFolder);
     if (IsFile(gameFolder / kRuntimeSavesMovedNote) || !HoldsData(old)) return layout;
     if (!RuntimeFolderHasFiles(layout.root / L"content")) {
@@ -345,7 +369,7 @@ RuntimeUserDataLayout RuntimeUserDataLayoutFor(const fs::path& gameFolder,
 }
 
 RuntimeUserDataLayout RuntimeDetectUserDataLayout(const fs::path& gameFolder) {
-    return RuntimeUserDataLayoutFor(gameFolder, SavedGamesFolder());
+    return RuntimeUserDataLayoutFor(gameFolder, SavedGamesFolder(), LocalAppDataFolder());
 }
 
 RuntimeUserDataLayout RuntimeMigrateGameFolderUserData(const RuntimeUserDataLayout& layout,
@@ -358,9 +382,11 @@ RuntimeUserDataLayout RuntimeMigrateGameFolderUserData(const RuntimeUserDataLayo
     }
     // The launcher or the game may have finished the copy meanwhile.
     const RuntimeUserDataLayout current =
-        RuntimeUserDataLayoutFor(layout.gameFolder, layout.perUserRoot.parent_path());
+        RuntimeUserDataLayoutFor(layout.gameFolder, layout.perUserRoot.parent_path(),
+                                 LocalAppDataFolder());
     if (!current.migrationPending) return current;
-    const RuntimeUserDataLayout target = PerUserLayout(layout.gameFolder, layout.perUserRoot);
+    const RuntimeUserDataLayout target =
+        PerUserLayout(layout.gameFolder, layout.perUserRoot, LocalAppDataFolder());
     const Places from = GameFolderPlaces(layout.gameFolder);
     const Places to = LayoutPlaces(target);
 

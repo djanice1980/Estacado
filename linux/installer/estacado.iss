@@ -13,9 +13,9 @@ AppVersion={#AppVersion}
 AppPublisher=Estacado (unofficial fan port)
 AppComments=Unofficial PC port of The Darkness (Xbox 360). Game files not included.
 ; Program Files, read-only for the game: without a portable.txt beside the
-; executable it keeps settings, saves and screenshots in
-; Saved Games\Estacado (runtime/runtime_user_data.h). Its logs\ folder is
-; relative to the working directory, so the shortcuts start it there.
+; executable it keeps settings, saves and screenshots in Saved Games\Estacado
+; and its logs, language packs, extracted disc image and game-location file
+; in %LOCALAPPDATA%\Estacado (runtime/runtime_user_data.h).
 PrivilegesRequired=admin
 DefaultDirName={autopf}\The Darkness (Estacado)
 DefaultGroupName=The Darkness (Estacado)
@@ -42,14 +42,16 @@ Source: "{#PackageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Source: "{#RedistDir}\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: VCRedistNeeded
 
 [Icons]
-Name: "{group}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{%USERPROFILE}\Saved Games\Estacado"
-Name: "{group}\Saves, settings and logs"; Filename: "{%USERPROFILE}\Saved Games\Estacado"
+Name: "{group}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{app}"
+Name: "{group}\Saves and settings"; Filename: "{%USERPROFILE}\Saved Games\Estacado"
+Name: "{group}\Logs and language packs"; Filename: "{localappdata}\Estacado"
 Name: "{group}\Uninstall The Darkness (Estacado)"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{%USERPROFILE}\Saved Games\Estacado"; Tasks: desktopicon
+Name: "{userdesktop}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Dirs]
 ; Created for the shortcuts; the game creates them too. Never removed.
 Name: "{%USERPROFILE}\Saved Games\Estacado"; Flags: uninsneveruninstall
+Name: "{localappdata}\Estacado"; Flags: uninsneveruninstall
 
 [Run]
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /passive /norestart"; \
@@ -94,5 +96,6 @@ begin
     WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 +
       'Game files are not included. In the launcher, use "Choose game folder..." ' +
       '(the folder with default.xex) or "Choose disc image..." (your .iso).' + #13#10#13#10 +
-      'Saves, settings and logs: ' + ExpandConstant('{%USERPROFILE}') + '\Saved Games\Estacado';
+      'Saves and settings: ' + ExpandConstant('{%USERPROFILE}') + '\Saved Games\Estacado' + #13#10 +
+      'Logs and language packs: ' + ExpandConstant('{localappdata}') + '\Estacado';
 end;

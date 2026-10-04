@@ -105,6 +105,9 @@ bool g_dpiChanged = false;
 
 struct Launcher {
     std::filesystem::path directory;
+    // Logs, language packs, an extracted disc image and the game-location
+    // file: userData.localData (runtime_user_data.h).
+    std::filesystem::path dataDirectory;
     std::filesystem::path runtimeExecutable;
     std::filesystem::path presetDirectory;
     std::filesystem::path activeConfig;
@@ -521,7 +524,7 @@ bool Launch(Launcher& app, bool safeMode) {
 
 // Which game the runtime will start and whether it is the supported version.
 void CheckGame(Launcher& app) {
-    const std::filesystem::path xex = setup::FindGameXex(app.directory);
+    const std::filesystem::path xex = setup::FindGameXex(app.dataDirectory, app.directory);
     app.gameFolder = xex.empty() ? std::filesystem::path() : xex.parent_path();
     if (xex.empty()) {
         app.gameStatus = setup::GameStatus::kMissing;
@@ -627,7 +630,7 @@ std::string DifferentVersionText(const setup::XexIdentity& identity) {
 
 // A folder with the extracted game: checked, then remembered.
 void SetUpFromFolder(Launcher& app, std::filesystem::path folder) {
-    const std::filesystem::path directory = app.directory;
+    const std::filesystem::path directory = app.dataDirectory;
     StartJob(*app.job, [directory, folder](GameSetupJob& job) {
         const setup::GameCheck check = setup::CheckGameFolder(folder);
         switch (check.status) {
@@ -659,7 +662,7 @@ void SetUpFromFolder(Launcher& app, std::filesystem::path folder) {
 // launcher (through a temporary folder, so a cancelled extraction never
 // looks like a game).
 void SetUpFromImage(Launcher& app, std::filesystem::path image) {
-    const std::filesystem::path directory = app.directory;
+    const std::filesystem::path directory = app.dataDirectory;
     StartJob(*app.job, [directory, image](GameSetupJob& job) {
         const setup::DiscImageInfo info = setup::InspectDiscImage(image);
         if (!info.ok) return FinishJob(job, false, "Unable to use this disc image.", info.error);
@@ -895,9 +898,9 @@ void DetectTexturePacks(Launcher& app) {
     // installed. V440: Arabic is offered only with a pack (installed, carried
     // by the package or downloadable).
     const ui::LanguagePackFolder arabic =
-        ui::ScanLanguagePackFolder(app.directory / L"language_packs" / L"arabic");
+        ui::ScanLanguagePackFolder(app.dataDirectory / L"language_packs" / L"arabic");
     app.arabicPackInstalled = arabic.strings && arabic.fonts;
-    app.offer = PcSettingsOfferFor(app.directory, kLanguagePackUrl[0] != '\0');
+    app.offer = PcSettingsOfferFor(app.dataDirectory, app.directory, kLanguagePackUrl[0] != '\0');
     if (app.offer.arabic) {
         ui::DetectLanguagePack(app.model, arabic,
                                "the language_packs\\arabic folder in the game folder");
@@ -909,7 +912,7 @@ void DetectTexturePacks(Launcher& app) {
 // Installs a downloaded pack archive (worker thread) against the player's
 // own game files.
 void StartPackInstall(Launcher& app, std::filesystem::path archive, bool download) {
-    const std::filesystem::path directory = app.directory;
+    const std::filesystem::path directory = app.dataDirectory;
     const std::filesystem::path game = app.gameFolder;
     StartJob(*app.packJob, [directory, game, archive, download](GameSetupJob& job) {
         const auto progress = [&job](uint64_t done, uint64_t total) {
@@ -1357,6 +1360,7 @@ void ImportSaves(Launcher& app, const std::filesystem::path& source) {
     std::string text = copy.ok ? std::string{} : copy.error;
     for (const std::string& line : copy.lines) text += (text.empty() ? "" : "\n") + line;
     app.userData = RuntimeDetectUserDataLayout(app.directory);
+    app.dataDirectory = app.userData.localData;
     app.activeConfig = app.userData.configPath;
     app.userDataNotice.clear();
     Reload(app);
@@ -1405,6 +1409,7 @@ void DrawUserDataBar(Launcher& app) {
                           ImVec2(button, 0.0f))) {
             RuntimeKeepGameFolderUserData(app.userData);
             app.userData = RuntimeDetectUserDataLayout(app.directory);
+    app.dataDirectory = app.userData.localData;
         }
     }
     ImGui::Spacing();
@@ -1508,7 +1513,7 @@ void DrawAbout(Launcher& app) {
     };
     auto logs = [&] {
         if (ImGui::Button((Shown(app, Tr(app, "Logs")) + "##logs").c_str(), ImVec2(button, 0.0f))) {
-            OpenFolder(app.directory / L"logs");
+            OpenFolder(app.dataDirectory / L"logs");
         }
     };
     auto ok = [&] {
@@ -1731,7 +1736,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
 
     Launcher app;
     app.directory = ExecutableDirectory();
-    app.offer = PcSettingsOfferFor(app.directory, kLanguagePackUrl[0] != '\0');
+    app.offer = PcSettingsOfferFor(app.dataDirectory, app.directory, kLanguagePackUrl[0] != '\0');
     app.schemaOffer = app.offer;
     app.schema = BuildPcSettingsUiSchema(false, app.offer);
     app.model.schema = &app.schema;
@@ -1741,6 +1746,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     // an update from 0.9.0 copies them there from this folder (not while the
     // game runs: it may be saving).
     app.userData = RuntimeDetectUserDataLayout(app.directory);
+    app.dataDirectory = app.userData.localData;
+    {
+        // The local data folder (logs, packs, the game-location file) may not
+        // exist yet on an installed copy's first start.
+        std::error_code ignore;
+        std::filesystem::create_directories(app.dataDirectory, ignore);
+    }
     bool gameRunning = true;
     try {
         gameRunning = RuntimeSingleInstance::Exists(kRuntimeTitleLockName);
@@ -1749,6 +1761,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     if (app.userData.migrationPending && !gameRunning) {
         RuntimeUserDataCopy copy;
         app.userData = RuntimeMigrateGameFolderUserData(app.userData, copy);
+        app.dataDirectory = app.userData.localData;
         if (!copy.ok) {
             app.userDataNotice = ui::FormatText(
                 Tr(app, "Your saves and settings could not be copied to {}: {}. The game keeps "
