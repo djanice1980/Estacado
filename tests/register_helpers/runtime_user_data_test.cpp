@@ -89,6 +89,24 @@ int main() {
               "without a Saved Games folder the game folder is used");
     }
     {
+        // Logs, language packs and an extracted disc image: the local
+        // application data folder in per-user mode, the game folder otherwise.
+        const fs::path local = base / L"Local";
+        const fs::path game = base / L"installed";
+        fs::create_directories(game);
+        const RuntimeUserDataLayout perUser = RuntimeUserDataLayoutFor(game, savedGames, local);
+        Check(perUser.mode == RuntimeUserDataMode::kPerUser &&
+                  perUser.localData == local / L"Estacado",
+              "per-user mode keeps logs and packs in LocalAppData\\Estacado");
+        Check(RuntimeUserDataLayoutFor(game, savedGames).localData == game,
+              "without a local application data folder the game folder holds them");
+        Check(RuntimeUserDataLayoutFor(game, {}, local).localData == game,
+              "without a Saved Games folder the game folder holds them");
+        Write(game / L"portable.txt", "");
+        Check(RuntimeUserDataLayoutFor(game, savedGames, local).localData == game,
+              "portable.txt keeps them in the game folder");
+    }
+    {
         // An update from 0.9.0: the game folder stays in use until the copy.
         const fs::path game = base / L"old";
         MakeOldFolder(game);

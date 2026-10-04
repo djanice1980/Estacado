@@ -166,14 +166,26 @@ LONG WINAPI CrashEvidence(EXCEPTION_POINTERS* exception) {
 // Resolved before any guest code runs so the unhandled filter only formats
 // and writes: the crash directory beside the executable and MiniDumpWriteDump
 // from the system dbghelp.dll (never a copy beside the game).
-void PrepareCrashEvidence() {
+// logsFolder: the local data folder's logs (runtime_user_data.h); beside the
+// executable when it is empty.
+void PrepareCrashEvidence(const std::filesystem::path& logsFolder) {
     wchar_t executable[MAX_PATH]{};
     const DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
-    if (length && length < MAX_PATH) {
-        std::wstring directory(executable, length);
+    std::wstring directory;
+    if (!logsFolder.empty()) {
+        // The local data folder may not exist yet (a fresh installed copy);
+        // the crash handler itself only creates the last level.
+        std::error_code ignore;
+        std::filesystem::create_directories(logsFolder, ignore);
+        directory = logsFolder.wstring();
+        if (directory.back() != L'\\') directory += L'\\';
+    } else if (length && length < MAX_PATH) {
+        directory.assign(executable, length);
         directory.erase(directory.find_last_of(L"\\/") + 1);
         directory += L"logs\\";
-        if (directory.size() < MAX_PATH) wcscpy_s(g_crashDirectory, directory.c_str());
+    }
+    if (!directory.empty() && directory.size() < MAX_PATH) {
+        wcscpy_s(g_crashDirectory, directory.c_str());
     }
     if (const HMODULE dbghelp =
             LoadLibraryExW(L"dbghelp.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
@@ -187,7 +199,9 @@ void PrepareCrashEvidence() {
 // TheDarkness.exe sends this run's console output (REX_*/RUNTIME_* lines, the
 // F9 snapshot markers) to logs\session_<date>_<time>.log. Without the file
 // nothing changes (a game started by the launcher has no console).
-void OpenSessionLogIfRequested() {
+// The marker is accepted beside the executable or in the local data folder
+// (an installed copy's program folder may not be writable by the player).
+void OpenSessionLogIfRequested(const std::filesystem::path& dataFolder) {
     if (!g_crashDirectory[0]) return;
     wchar_t executable[MAX_PATH]{};
     const DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
@@ -195,7 +209,12 @@ void OpenSessionLogIfRequested() {
     std::wstring marker(executable, length);
     marker.erase(marker.find_last_of(L"\\/") + 1);
     marker += L"session_log.txt";
-    if (GetFileAttributesW(marker.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    bool requested = GetFileAttributesW(marker.c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (!requested && !dataFolder.empty()) {
+        requested = GetFileAttributesW((dataFolder / L"session_log.txt").c_str()) !=
+                    INVALID_FILE_ATTRIBUTES;
+    }
+    if (!requested) return;
     CreateDirectoryW(g_crashDirectory, nullptr);
     SYSTEMTIME now{};
     GetLocalTime(&now);
@@ -409,8 +428,12 @@ int main(int argc, char** argv) {
     // first-chance hook incorrectly labels exceptions that a module later
     // handles (including injected overlays and compatibility layers) as title
     // crashes, and performs file I/O on their normal control-flow path.
-    PrepareCrashEvidence();
-    OpenSessionLogIfRequested();
+    // Crash evidence and the session log go to the local data folder's logs
+    // (runtime_user_data.h), decided from the folders alone.
+    const RuntimeUserDataLayout startupLayout =
+        RuntimeDetectUserDataLayout(RuntimeExecutableDirectory());
+    PrepareCrashEvidence(startupLayout.localData / L"logs");
+    OpenSessionLogIfRequested(startupLayout.localData);
     SetUnhandledExceptionFilter(CrashEvidence);
     {
         // Developer check of the crash path (report line, log and minidump):
@@ -516,6 +539,7 @@ int main(int argc, char** argv) {
                                                              : RuntimeUserDataModeName(userData.mode))
                       << '\n'
                       << "USER_DATA_ROOT=" << launchOptions.userDataRoot.u8string() << '\n'
+                      << "LOCAL_DATA_ROOT=" << userData.localData.u8string() << '\n'
                       << "CONTENT_ROOT="
                       << (launchOptions.userDataRoot / L"content").u8string() << '\n'
                       << "SCREENSHOT_ROOT="
@@ -776,7 +800,7 @@ int main(int argc, char** argv) {
         if (!languagePackName.empty()) {
             // REX_LANGUAGE_PACK_ROOT: another pack folder (developer checks).
             std::filesystem::path languagePackRoot =
-                executableDirectory / L"language_packs" / std::filesystem::path(languagePackName);
+                userData.localData / L"language_packs" / std::filesystem::path(languagePackName);
             if (const char* root = std::getenv("REX_LANGUAGE_PACK_ROOT"); root && *root) {
                 languagePackRoot = std::filesystem::path(root);
             }
@@ -946,7 +970,7 @@ int main(int argc, char** argv) {
             if (identity.match != setup::XexMatch::kSupported &&
                 identity.match != setup::XexMatch::kSameCode) {
                 std::error_code reportError;
-                const std::filesystem::path logs = executableDirectory / L"logs";
+                const std::filesystem::path logs = userData.localData / L"logs";
                 std::filesystem::create_directories(logs, reportError);
                 std::ofstream(logs / L"game_version_report.txt", std::ios::binary | std::ios::trunc)
                     << setup::XexIdentityReport(identity, launchOptions.xexPath.u8string());
@@ -1054,7 +1078,7 @@ int main(int argc, char** argv) {
                 launchOptions.pcConfigPath.parent_path(), presetError);
             settingsService.persistence = startupPcConfig.present() &&
                                           configDirectory != presetDirectory;
-            settingsService.offer = PcSettingsOfferFor(executableDirectory);
+            settingsService.offer = PcSettingsOfferFor(userData.localData, executableDirectory);
             StartRuntimeSettingsService(settingsService);
         }
         auto* base = guestMemory.base;

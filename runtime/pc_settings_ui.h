@@ -31,6 +31,13 @@ bool PcExperimentalFeature(std::string_view name);
 // (downloadable) or the switch. Temporal AA: the switch.
 PcSettingsOffer PcSettingsOfferFor(const std::filesystem::path& gameFolder,
                                    bool downloadable = false);
+// The same with the installed copy's two folders (runtime_user_data.h):
+// installed packs live in the local data folder, the package's carried
+// archive beside the executables (a portable copy passes the same folder
+// twice).
+PcSettingsOffer PcSettingsOfferFor(const std::filesystem::path& dataFolder,
+                                   const std::filesystem::path& programFolder,
+                                   bool downloadable = false);
 
 // arabic: the Arabic interface (pc_settings_arabic.h), right-to-left; only
 // with offer.arabic.

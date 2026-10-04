@@ -39,6 +39,10 @@ struct RuntimeUserDataLayout {
     std::filesystem::path configPath;
     // Saved Games\Estacado (empty when the system has no Saved Games folder).
     std::filesystem::path perUserRoot;
+    // Logs, language packs, an extracted disc image and the game-location
+    // file: %LOCALAPPDATA%\Estacado in per-user mode (the program folder may
+    // be read-only, as in Program Files), the game folder otherwise.
+    std::filesystem::path localData;
     // The game folder holds 0.9.0 data that is not copied yet (the layout then
     // still points at the game folder).
     bool migrationPending = false;
@@ -52,11 +56,14 @@ inline constexpr wchar_t kRuntimePortableMarker[] = L"portable.txt";
 inline constexpr wchar_t kRuntimeSavesMovedNote[] = L"SAVES_MOVED.txt";
 
 // The layout of a game folder, given the Saved Games folder (empty when the
-// system has none). Reads the folders; changes nothing.
+// system has none) and the local application data folder (empty: the game
+// folder holds the local data). Reads the folders; changes nothing.
 RuntimeUserDataLayout RuntimeUserDataLayoutFor(const std::filesystem::path& gameFolder,
-                                               const std::filesystem::path& savedGames);
-// The layout on this machine (FOLDERID_SavedGames; isolated tests replace it
-// with DARKNESS_TEST_SAVED_GAMES).
+                                               const std::filesystem::path& savedGames,
+                                               const std::filesystem::path& localAppData = {});
+// The layout on this machine (FOLDERID_SavedGames and FOLDERID_LocalAppData;
+// isolated tests replace them with DARKNESS_TEST_SAVED_GAMES and
+// DARKNESS_TEST_LOCAL_APP_DATA).
 RuntimeUserDataLayout RuntimeDetectUserDataLayout(const std::filesystem::path& gameFolder);
 // The 0.9.0 layout: the game folder's TheDarkness.pc.toml and runtime_data.
 RuntimeUserDataLayout RuntimeGameFolderUserDataLayout(const std::filesystem::path& gameFolder,

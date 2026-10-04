@@ -565,7 +565,7 @@ int main() {
               service.find("BuildPcSettingsUiSchema(false, config.offer)") != std::string::npos &&
               service.find("config.offer.arabic && language != saved.end()") !=
                   std::string::npos &&
-              main_source.find("settingsService.offer = PcSettingsOfferFor(executableDirectory);") !=
+              main_source.find("settingsService.offer = PcSettingsOfferFor(userData.localData, executableDirectory);") !=
                   std::string::npos &&
               main_source.find("PcExperimentalFeature(\"temporal_aa\"), &shelvedTemporalAa);") !=
                   std::string::npos,
