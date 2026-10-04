@@ -47,6 +47,30 @@ int main() {
     const uint32_t t = RuntimeWidescreenScaleThreshold(w, 640);
     ok &= Check(t % 80 == 0 && t >= w / 2 && t < w, "half-width buffers native, full width scaled");
   }
+  // The bloom rules follow the mode's buffer sizes; tables and 16:9 are kept.
+  const std::string rules =
+      "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
+      "B29F0BF45937C4C4:9F1D2D64E5F75924:0:1280:720:26:filter;"
+      "B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:90:6:filter;"
+      "4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native";
+  ok &= Check(RuntimeWidescreenNativeGridRules(rules, 1280, 720) == rules, "16:9 rules unchanged");
+  ok &= Check(RuntimeWidescreenNativeGridRules(rules, 1680, 720) == rules &&
+                  RuntimeWidescreenNativeGridRules(rules, 2560, 720) == rules,
+              "wider modes keep the 16:9 rules (see the policy note)");
+  ok &= Check(RuntimeWidescreenNativeGridRules(rules, 1280, 960) ==
+                  "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
+                  "B29F0BF45937C4C4:9F1D2D64E5F75924:0:1280:960:26:filter;"
+                  "B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:120:6:filter;"
+                  "4FA9486610B42A92:22FC55CE134777AC:1:1280:960:26:filter_scaled:source=native",
+              "4:3 rules name the 1280 x 960 and 160 x 120 buffers");
+  ok &= Check(RuntimeWidescreenNativeGridRules(rules, 1280, 800).find(":1280:800:26:filter;") !=
+                      std::string::npos &&
+                  RuntimeWidescreenNativeGridRules(rules, 1280, 800).find(":160:100:6:") !=
+                      std::string::npos,
+              "16:10 rules name the 1280 x 800 and 160 x 100 buffers");
+  for (uint32_t h : {800u, 960u, 1280u}) {
+    ok &= Check(h % 16 == 0 && (h / 8) * 8 == h, "an eighth of every guest height is whole");
+  }
   if (ok) std::cout << "runtime_widescreen_policy: ok\n";
   return ok ? 0 : 1;
 }
