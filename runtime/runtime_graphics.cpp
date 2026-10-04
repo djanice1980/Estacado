@@ -128,6 +128,7 @@ using SettingsConfigureFn = uint32_t (*)(void*, const char*, const char*, const 
 using SettingsPollFn = uint32_t (*)(void*, char*, uint32_t);
 using SettingsSavedFn = uint32_t (*)(void*, const char*, const char*);
 using SettingsOverlayOpenFn = uint32_t (*)(void*);
+using TestPadButtonsFn = uint32_t (*)(void*);
 using CloseRequestedFn = uint32_t (*)(void*);
 using XmaSetupFn = uint32_t (*)(void*, uint32_t);
 using XmaShutdownFn = void (*)(void*);
@@ -163,6 +164,7 @@ struct GraphicsAdapter {
     SettingsPollFn settings_poll{};
     SettingsSavedFn settings_saved{};
     SettingsOverlayOpenFn settings_overlay_open{};
+    TestPadButtonsFn test_pad_buttons{};
     CloseRequestedFn close_requested{};
     SetMenuStateFn set_menu_state{};
     GpuFrameBusyFn gpu_frame_busy{};
@@ -708,6 +710,8 @@ bool InitializeRuntimeGraphics(uint8_t* guest_virtual_base) {
             adapter.module, "rex_gpu_embedded_settings_saved");
         adapter.settings_overlay_open = ResolveOptional<SettingsOverlayOpenFn>(
             adapter.module, "rex_gpu_embedded_settings_overlay_open");
+        adapter.test_pad_buttons = ResolveOptional<TestPadButtonsFn>(
+            adapter.module, "rex_gpu_embedded_test_pad_buttons");
         adapter.close_requested = ResolveOptional<CloseRequestedFn>(
             adapter.module, "rex_gpu_embedded_close_requested");
         adapter.set_menu_state = ResolveOptional<SetMenuStateFn>(
@@ -931,6 +935,14 @@ void RuntimeGraphicsSettingsSaved(const std::string& saved, const std::string& s
 bool RuntimeGraphicsSettingsOverlayOpen() noexcept {
     return adapter.active.load(std::memory_order_acquire) && adapter.gpu &&
            adapter.settings_overlay_open && adapter.settings_overlay_open(adapter.gpu) != 0;
+}
+
+uint16_t RuntimeGraphicsTestPadButtons() noexcept {
+    if (!adapter.active.load(std::memory_order_acquire) || !adapter.gpu ||
+        !adapter.test_pad_buttons) {
+        return 0;
+    }
+    return uint16_t(adapter.test_pad_buttons(adapter.gpu));
 }
 
 bool RuntimeGraphicsCloseRequested() noexcept {

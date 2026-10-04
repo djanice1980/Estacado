@@ -1,0 +1,58 @@
+anisotropic_override = 5
+draw_resolution_scale_native_grid_rules = 'B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26'
+draw_resolution_scale_threshold = 640
+fullscreen = true
+monitor = 0
+output_resolution = '1440p'
+pc_config_version = 1
+resolution_scale = 2
+swap_post_effect = 'smaa'
+window_height = 0
+window_mode = 'borderless'
+window_width = 0
+
+[audio]
+master_volume = 1.0
+
+[camera]
+field_of_view = 105.0
+gameplay_fov = 105.0
+
+[diagnostics]
+camera_state = false
+
+[display]
+frame_limit = 0
+frame_rate = 'refresh'
+max_frame_latency = 1
+menu_frame_rate = 'reduced'
+present_mode = 'vsync'
+
+[general]
+language = 'auto'
+
+[graphics]
+motion_blur = false
+motion_blur_off_shader_pack = ''
+temporal_aa = 'off'
+
+[input]
+controller_invert_y = false
+controller_sensitivity = 'medium'
+keyboard_mouse = true
+keyboard_mouse_user_index = 0
+mouse_acceleration = 0.0
+mouse_invert_y = false
+mouse_look = 'native'
+mouse_sensitivity = 1.0
+mouse_smoothing = 0.0
+overlay_key = 'F1'
+vibration_scale = 1.0
+
+
+[present]
+allow_overscan_cutoff = false
+effect = 'auto'
+letterbox = true
+safe_area_x = 100
+safe_area_y = 100

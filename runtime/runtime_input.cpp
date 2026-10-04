@@ -2,6 +2,7 @@
 #include "runtime_input_capabilities_cache.h"
 #include "runtime_input_empty_slot_gate.h"
 #include "runtime_input_slot_routing.h"
+#include "runtime_overlay_chord.h"
 #include "runtime_button_prompts.h"
 
 #include "runtime_graphics.h"
@@ -43,6 +44,9 @@ constexpr uint32_t kVibrationScaleOneQ16 = 65536;
 std::atomic<uint32_t> runtimeInputVibrationScaleQ16{kVibrationScaleOneQ16};
 std::atomic<uint64_t> runtimeInputButtonMapCode{kRuntimeInputIdentityButtonMap};
 std::array<RuntimeMergedInputSlot, XUSER_MAX_COUNT> mergedInputSlots;
+// Back + Start opens the settings overlay (#7): one chord filter per user.
+std::mutex overlayChordMutex;
+std::array<RuntimeOverlayChordFilter, XUSER_MAX_COUNT> overlayChordFilters;
 
 using XInputGetCapabilitiesFn = DWORD(WINAPI*)(DWORD, DWORD, XINPUT_CAPABILITIES*);
 using XInputGetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
@@ -74,7 +78,29 @@ RuntimeInputCapabilitiesCache<XINPUT_CAPABILITIES, XUSER_MAX_COUNT> cachedCapabi
 
 XInputGetCapabilitiesFn ResolveXInputGetCapabilities();
 
+// Developer check (#16): DARKNESS_TEST_VIRTUAL_PAD=<0-3> reports an idle
+// wired controller on that host slot (capabilities, state, vibration), so the
+// connect path runs without a physical pad. Unset in normal launches.
+uint32_t TestVirtualPadSlot() {
+    static const uint32_t slot = [] {
+        const char* value = std::getenv("DARKNESS_TEST_VIRTUAL_PAD");
+        return value && value[0] >= '0' && value[0] <= '3' && !value[1]
+            ? uint32_t(value[0] - '0') : uint32_t(UINT32_MAX);
+    }();
+    return slot;
+}
+
 DWORD CachedXInputGetCapabilities(DWORD userIndex, DWORD flags, XINPUT_CAPABILITIES* out) {
+    if (userIndex == TestVirtualPadSlot()) {
+        *out = XINPUT_CAPABILITIES{};
+        out->Type = XINPUT_DEVTYPE_GAMEPAD;
+        out->SubType = XINPUT_DEVSUBTYPE_GAMEPAD;
+        out->Gamepad.wButtons = 0xF3FF;
+        out->Gamepad.bLeftTrigger = out->Gamepad.bRightTrigger = 0xFF;
+        out->Gamepad.sThumbLX = out->Gamepad.sThumbLY = INT16_MAX;
+        out->Gamepad.sThumbRX = out->Gamepad.sThumbRY = INT16_MAX;
+        return ERROR_SUCCESS;
+    }
     return cachedCapabilities.Get(
         userIndex, flags, GetTickCount64(), ERROR_SUCCESS, *out,
         [](uint32_t slot, uint32_t queryFlags, XINPUT_CAPABILITIES* capabilities) {
@@ -426,6 +452,11 @@ uint64_t RuntimeInputButtonMapCode() noexcept {
 
 // Native state of one host slot through the empty-slot gate.
 DWORD PollHostXInputState(uint32_t slot, XINPUT_STATE& native, uint64_t nowMs) {
+    if (slot == TestVirtualPadSlot()) {
+        native = XINPUT_STATE{};
+        native.dwPacketNumber = 1;
+        return ERROR_SUCCESS;
+    }
     DWORD result = ERROR_DEVICE_NOT_CONNECTED;
     if (!emptySlotGate.SkipNative(slot, nowMs)) {
         result = ResolveXInputGetState()(slot, &native);
@@ -449,16 +480,36 @@ uint32_t QueryGuestInputCapabilities(uint8_t* base, uint32_t userIndex,
     }
     const bool routed = RuntimeInputRoutingSinglePlayer();
     if (routed && actualUserIndex != 0) return kXErrorDeviceNotConnected;
-    const uint32_t padSlot = routed ? routedActiveSlot.load(std::memory_order_acquire)
-                                    : actualUserIndex;
 
     XINPUT_CAPABILITIES native{};
     const DWORD hostFlags = flags & ~kXInputDeviceTypeKeyboard;
+    uint32_t padSlot = actualUserIndex;
+    if (routed) {
+        // Before the first state poll the router has no active pad yet (#16).
+        XINPUT_CAPABILITIES probe{};
+        padSlot = RuntimeRoutedCapabilitiesSlot(
+            routedActiveSlot.load(std::memory_order_acquire), [&](uint32_t slot) {
+                return CachedXInputGetCapabilities(slot, hostFlags, &probe) == ERROR_SUCCESS;
+            });
+    }
     const DWORD result = padSlot < XUSER_MAX_COUNT
         ? CachedXInputGetCapabilities(padSlot, hostFlags, &native)
         : DWORD(ERROR_DEVICE_NOT_CONNECTED);
     const bool keyboardMouse = RuntimeGraphicsKeyboardMouseEnabled(
         routed ? RuntimeGraphicsKeyboardMouseUserIndex() : actualUserIndex);
+    if (actualUserIndex == 0) {
+        // One line per change of player 1's answer (#16 diagnostics).
+        static std::atomic<uint32_t> lastAnswer{UINT32_MAX};
+        const uint32_t answer = (result == ERROR_SUCCESS ? 1u : 0u) | (keyboardMouse ? 2u : 0u) |
+                                ((padSlot < XUSER_MAX_COUNT ? padSlot : 7u) << 2);
+        if (lastAnswer.exchange(answer, std::memory_order_relaxed) != answer) {
+            std::fprintf(stderr,
+                         "RUNTIME_INPUT_CAPABILITIES user=0 pad_slot=%d pad=%d keyboard_mouse=%d\n",
+                         padSlot < XUSER_MAX_COUNT ? int(padSlot) : -1,
+                         result == ERROR_SUCCESS ? 1 : 0, keyboardMouse ? 1 : 0);
+            std::fflush(stderr);
+        }
+    }
     if (result != ERROR_SUCCESS && !keyboardMouse) return result;
 
     RuntimeInputCapabilities guest{};
@@ -576,15 +627,28 @@ uint32_t QueryGuestInputState(uint8_t* base, uint32_t userIndex,
     }
 
     RuntimeInputState guest{};
-    if (result == ERROR_SUCCESS) {
-        guest.packetNumber = native.dwPacketNumber;
-        guest.buttons = native.Gamepad.wButtons;
-        guest.leftTrigger = native.Gamepad.bLeftTrigger;
-        guest.rightTrigger = native.Gamepad.bRightTrigger;
-        guest.thumbLX = native.Gamepad.sThumbLX;
-        guest.thumbLY = native.Gamepad.sThumbLY;
-        guest.thumbRX = native.Gamepad.sThumbRX;
-        guest.thumbRY = native.Gamepad.sThumbRY;
+    // Developer test input: the script's virtual controller (`pad`) joins the
+    // physical one (0 outside scripted test runs).
+    const uint16_t testPadButtons = RuntimeGraphicsTestPadButtons();
+    if (result == ERROR_SUCCESS || testPadButtons) {
+        if (result == ERROR_SUCCESS) {
+            guest.packetNumber = native.dwPacketNumber;
+            guest.buttons = native.Gamepad.wButtons;
+            guest.leftTrigger = native.Gamepad.bLeftTrigger;
+            guest.rightTrigger = native.Gamepad.bRightTrigger;
+            guest.thumbLX = native.Gamepad.sThumbLX;
+            guest.thumbLY = native.Gamepad.sThumbLY;
+            guest.thumbRX = native.Gamepad.sThumbRX;
+            guest.thumbRY = native.Gamepad.sThumbRY;
+        }
+        guest.buttons |= testPadButtons;
+        {
+            // Back + Start opens the settings overlay (the GPU plugin polls the
+            // chord itself); the title never sees the chord.
+            std::lock_guard<std::mutex> chordLock(overlayChordMutex);
+            guest.buttons = overlayChordFilters[actualUserIndex % XUSER_MAX_COUNT].Filter(
+                guest.buttons, nowMs);
+        }
         guest = RemapRuntimeControllerState(guest, RuntimeInputButtonMapCode());
     }
     if (keyboardMouse) {
@@ -642,6 +706,7 @@ uint32_t SetGuestInputVibration(uint8_t* base, uint32_t userIndex,
         }
         routedVibrationSlot = padSlot;
     }
+    if (padSlot == TestVirtualPadSlot()) return ERROR_SUCCESS;
     DWORD result = ERROR_DEVICE_NOT_CONNECTED;
     if (padSlot < XUSER_MAX_COUNT && !emptySlotGate.SkipNative(padSlot, nowMs)) {
         result = ResolveXInputSetState()(padSlot, &native);

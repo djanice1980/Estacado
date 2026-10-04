@@ -214,6 +214,15 @@ int main() {
     check(offered() == "off,taa,fsr," &&
               model.detected_choices[key].back().label.find("not installed") != std::string::npos,
           "a chosen upscaler without its runtime stays listed, marked");
+    model.values[key] = "taa";
+    ui::DetectUpscalers(model, {true, true, true, false});
+    check(offered() == "off,taa,fsr,xess,", "DLSS is not offered without an NVIDIA RTX card");
+    model.values[key] = "dlss";
+    ui::DetectUpscalers(model, {true, true, true, false});
+    check(offered() == "off,taa,dlss,fsr,xess," &&
+              model.detected_choices[key][2].label.find("needs an NVIDIA RTX card") !=
+                  std::string::npos,
+          "a chosen DLSS on another card stays listed, marked");
     const std::string root = DARKNESS_SOURCE_ROOT;
     check(Read(root + "/external/ReXGlue/src/ui/overlay/host_settings_overlay.cpp")
                       .find("settings::DetectUpscalers(model_, state_.upscalers)") !=

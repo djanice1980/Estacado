@@ -1409,7 +1409,8 @@ std::string RuntimePcConfigWithTitleScaleRequirements(const std::string& content
     const bool hasThreshold = config.contains("draw_resolution_scale_threshold");
     const auto rules = config["draw_resolution_scale_native_grid_rules"].value<std::string>();
     const bool legacyRules = rules && (*rules == kLegacyTitleNativeGridRules ||
-                                       *rules == kPreviousTitleNativeGridRules);
+                                       *rules == kPreviousTitleNativeGridRules ||
+                                       *rules == k091TitleNativeGridRules);
     const bool hasRules = config.contains("draw_resolution_scale_native_grid_rules") && !legacyRules;
     const bool hasTracking = config.contains("native_resolve_region_tracking");
     if (hasThreshold && hasRules && hasTracking) return contents;

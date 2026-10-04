@@ -205,8 +205,12 @@ void AfterClientFrame(PPCContext& ctx, uint8_t* base, uint32_t client) {
         return;
     }
     if (mouse.dx || mouse.dy) {
-        // Mouse movement counts as keyboard/mouse input for button prompts.
-        RuntimeNoteInputActivity(false, true);
+        // A deliberate mouse movement counts as keyboard/mouse input for
+        // button prompts (RuntimeMouseActivityGate: never sensor jitter).
+        static RuntimeMouseActivityGate activityGate;  // client frame thread
+        if (activityGate.Observe(mouse.dx, mouse.dy, GetTickCount64())) {
+            RuntimeNoteInputActivity(false, true);
+        }
     }
     const Gate gate = ReadGate(base);
     LogGateChange(gate);

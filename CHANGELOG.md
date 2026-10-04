@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.9.2 (pre-release)
+
+Hotfix for regressions in 0.9.1
+([#16](https://github.com/invinceble55-wq/Estacado/issues/16)).
+
+- **Controller with *Keyboard / mouse* off:** 0.9.1 answered the game's
+  "is a controller connected?" with no until a state poll had chosen a pad,
+  and the game polls only connected controllers, so a controller worked only
+  while keyboard and mouse were on. The answer now comes from the connected
+  pads (the active one first, else the lowest connected port).
+- **Bloom with motion blur on at 2x/3x/4x internal resolution:** shimmering
+  squares and ripples in menus and gameplay and banded light flashes in the
+  main menu. The final composite of the frame reads the console-resolution
+  glow through texture fetch 1; 0.9.1 enlarged it smoothly only for the
+  composite shader without motion blur (22FC55CE134777AC), not for the
+  motion-blur one (A59B41D0BD79484B). Both have the rule now; settings files
+  with the 0.9.0 or 0.9.1 rules are upgraded when the game starts. Main menu
+  flash at 2x, motion blur on: the share of the brightness change made in the
+  steepest tenth of rows fell from 0.27 to 0.19, the same as with motion
+  blur off.
+- **Button prompts with a controller:** mouse sensor jitter and small
+  stick-mode mouse deflections switched the prompts to keyboard keys; now
+  only deliberate mouse movement (40 counts within 300 ms) or a stick-mode
+  deflection beyond 8000 counts does.
+- **Enter acts as the A button** while no key binding uses it, so menus
+  confirm with Enter as well as E (Space has been jump since 0.9.1).
+- **Back + Start** on a controller opens and closes the in-game settings
+  (F1); D-pad or stick, A, LB/RB and B navigate them; the game never sees the
+  chord, a lone Start still pauses
+  ([#7](https://github.com/invinceble55-wq/Estacado/issues/7)).
+- **F9 snapshot** for bug reports: a screenshot plus a one-frame text
+  description of the draws (shader hashes, render target, blend, depth and
+  scissor state, texture fetch constants, resolves).
+- **Opt-in session log:** an empty `session_log.txt` next to
+  `TheDarkness.exe` sends the run's log to `logs\session_<date>_<time>.log`.
+  New lines for input problems: keyboard focus changes and the first key
+  presses (`REX_MNK_FOCUS`, `REX_MNK_KEY`, `REX_SDL_KEY`,
+  `REX_INPUT_KEY_DROPPED`) and player 1's controller answer
+  (`RUNTIME_INPUT_CAPABILITIES`).
+- New release check before every release: keyboard and controller with
+  real key presses (Windows `SendInput`, hardware scan codes) and a virtual
+  controller (developer switch `DARKNESS_TEST_VIRTUAL_PAD=<port>`): fresh
+  settings, keyboard/mouse off with and without a controller, both on, and a
+  0.9.0 settings file.
+- GPU code built with a profile retrained on the current code
+  (`config/pgo/rexgpu-v467.profdata`).
+
 ## 0.9.1 (pre-release)
 
 - **Bloom at 2x/3x/4x internal resolution** no longer bands or streaks around

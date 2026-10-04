@@ -46,6 +46,19 @@ int main() {
     Check(!RuntimeKeyboardMouseActivity(0, 0, 0, 0, 0, 0, 0), "idle keys are not activity");
     Check(RuntimeKeyboardMouseActivity(0, 0, 0, 0, 32767, 0, 0), "a movement key is activity");
     Check(RuntimeKeyboardMouseActivity(0, 255, 0, 0, 0, 0, 0), "a mouse button is activity");
+    // #16: mouse jitter must not flip the prompts away from a controller.
+    Check(!RuntimeKeyboardMouseActivity(0, 0, 0, 0, 0, 900, -600),
+          "a small stick-mode mouse deflection is not activity");
+    Check(RuntimeKeyboardMouseActivity(0, 0, 0, 0, 0, 20000, 0),
+          "a deliberate stick-mode mouse movement is activity");
+    {
+        RuntimeMouseActivityGate gate;
+        Check(!gate.Observe(1, 0, 1000) && !gate.Observe(-2, 1, 1100) && !gate.Observe(1, 1, 1200),
+              "sensor jitter stays below the gate");
+        Check(!gate.Observe(3, 0, 2000), "jitter after a pause starts a new window");
+        Check(!gate.Observe(20, 5, 3000) && gate.Observe(15, 4, 3100),
+              "a deliberate movement passes the gate");
+    }
 
     RuntimeNoteInputActivity(false, true);
     Check(g_noted_device == 2, "the plugin hears about the keyboard");

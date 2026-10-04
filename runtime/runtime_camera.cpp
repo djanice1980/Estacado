@@ -17,9 +17,12 @@
 #include "runtime_memory_access.h"
 #include "ppc_recomp_shared.h"
 
+#include <Windows.h>
+
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -38,9 +41,15 @@ std::atomic<float> gameplay_fov_degrees{kOriginalGameplayFovDegrees};
 std::atomic<double> view_fov_tangent_scale{1.0};
 std::atomic<bool> view_fov_logged{};
 // #6: per-frame FOV interpolation (RuntimeFovSmoother). Off in 0.9.1 until
-// it is verified on an actual zoom (0.9.2); DARKNESS_FOV_SMOOTHING=1 turns
-// it on (developer checks).
+// it is verified on an actual zoom (0.9.2); DARKNESS_FOV_SMOOTHING=1 or an
+// fov_smoothing.txt beside TheDarkness.exe (play tests) turns it on.
 std::atomic<bool> view_fov_smoothing{false};
+// Play-test evidence for #6 (fov_zoom_log.txt beside TheDarkness.exe): one
+// RUNTIME_FOV_ZOOM line per frame while the title's FOV or the shown FOV is
+// moving (a zoom), on the console/session log; bounded per session.
+std::atomic<bool> view_fov_zoom_log{false};
+std::atomic<uint32_t> view_fov_zoom_log_lines{0};
+constexpr uint32_t kViewFovZoomLogLines = 60000;
 // Developer trace of the per-frame FOV (DARKNESS_FOV_TRACE=<file>), bounded.
 std::atomic<bool> view_fov_trace_enabled{};
 std::mutex view_fov_trace_mutex;
@@ -944,9 +953,22 @@ void RuntimeScaleClientViewFov(PPCContext& context, uint8_t* base) noexcept {
         RuntimeScaledViewFov(shown, view_fov_tangent_scale.load(std::memory_order_relaxed));
     last = {title_bits, FloatBits(scaled)};
     PPC_STORE_U32(view + kClientViewFovOffset, last.scaled_bits);
+    if (view_fov_zoom_log.load(std::memory_order_relaxed)) {
+        thread_local float previous_title = 0.0f;
+        thread_local bool moving = false;
+        const bool now_moving = fov != previous_title || std::fabs(shown - fov) > 1e-4f;
+        if ((now_moving || moving) &&
+            view_fov_zoom_log_lines.fetch_add(1, std::memory_order_relaxed) <
+                kViewFovZoomLogLines) {
+            std::fprintf(stderr, "RUNTIME_FOV_ZOOM t=%.6f view=%08X title=%.4f shown=%.4f written=%.4f\n",
+                         now, context.r3.u32, fov, shown, scaled);
+        }
+        previous_title = fov;
+        moving = now_moving;
+    }
     if (view_fov_trace_enabled.load(std::memory_order_relaxed)) {
         std::lock_guard lock(view_fov_trace_mutex);
-        if (++view_fov_trace_lines >= 100000) view_fov_trace_enabled = false;
+        if (++view_fov_trace_lines >= 3000000) view_fov_trace_enabled = false;
         view_fov_trace << std::fixed << std::setprecision(6) << now << ',' << std::hex
                        << context.r3.u32 << std::dec << ',' << fov << ',' << shown << ','
                        << scaled << '\n';
@@ -981,9 +1003,21 @@ void ConfigureRuntimeCamera(float configured_fov_degrees,
     }
     view_fov_tangent_scale.store(tangent_scale, std::memory_order_relaxed);
     view_fov_logged.store(false, std::memory_order_relaxed);
+    const auto marker = [](const wchar_t* name) {
+        wchar_t executable[MAX_PATH]{};
+        const DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
+        if (!length || length >= MAX_PATH) return false;
+        std::error_code error;
+        return std::filesystem::exists(
+            std::filesystem::path(executable, executable + length).parent_path() / name, error);
+    };
     const char* smoothing_env = std::getenv("DARKNESS_FOV_SMOOTHING");
-    const bool smoothing = smoothing_env && smoothing_env[0] == '1';
+    const bool smoothing =
+        (smoothing_env && smoothing_env[0] == '1') || marker(L"fov_smoothing.txt");
     view_fov_smoothing.store(smoothing, std::memory_order_relaxed);
+    view_fov_zoom_log.store(marker(L"fov_zoom_log.txt"), std::memory_order_relaxed);
+    std::fprintf(stderr, "RUNTIME_FOV_SMOOTHING enabled=%d zoom_log=%d\n", smoothing ? 1 : 0,
+                 view_fov_zoom_log.load(std::memory_order_relaxed) ? 1 : 0);
     if (const char* trace = std::getenv("DARKNESS_FOV_TRACE"); trace && *trace) {
         std::lock_guard lock(view_fov_trace_mutex);
         view_fov_trace.open(std::filesystem::u8path(trace), std::ios::trunc);

@@ -37,6 +37,7 @@
 #include <Windows.h>
 #include <DbgHelp.h>
 #include <shellapi.h>
+#include <io.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -180,6 +181,51 @@ void PrepareCrashEvidence() {
             GetProcAddress(dbghelp, "MiniDumpWriteDump"));
     }
     RuntimeFatalConfigure(g_crashDirectory, reinterpret_cast<void*>(g_miniDumpWriteDump));
+}
+
+// Opt-in play-testing log (#14): an empty session_log.txt beside
+// TheDarkness.exe sends this run's console output (REX_*/RUNTIME_* lines, the
+// F9 snapshot markers) to logs\session_<date>_<time>.log. Without the file
+// nothing changes (a game started by the launcher has no console).
+void OpenSessionLogIfRequested() {
+    if (!g_crashDirectory[0]) return;
+    wchar_t executable[MAX_PATH]{};
+    const DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
+    if (!length || length >= MAX_PATH) return;
+    std::wstring marker(executable, length);
+    marker.erase(marker.find_last_of(L"\\/") + 1);
+    marker += L"session_log.txt";
+    if (GetFileAttributesW(marker.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    CreateDirectoryW(g_crashDirectory, nullptr);
+    SYSTEMTIME now{};
+    GetLocalTime(&now);
+    wchar_t path[MAX_PATH]{};
+    _snwprintf_s(path, _TRUNCATE, L"%lssession_%04u%02u%02u_%02u%02u%02u.log", g_crashDirectory,
+                 now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
+    const HANDLE created = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (created == INVALID_HANDLE_VALUE) return;
+    CloseHandle(created);
+    // stderr appends to the file. stdout, when this process has one, shares
+    // its descriptor (never a second open of the file: a failed reopen would
+    // leave stdout closed, and the C runtime stops the process at its next
+    // write); a game started by the launcher has no stdout and keeps none.
+    FILE* errorStream = nullptr;
+    if (_wfreopen_s(&errorStream, path, L"a", stderr) != 0 || !errorStream) return;
+    const int errorDescriptor = _fileno(stderr);
+    const int outputDescriptor = _fileno(stdout);
+    if (errorDescriptor >= 0 && outputDescriptor >= 0) {
+        std::fflush(stdout);
+        if (_dup2(errorDescriptor, outputDescriptor) == 0) {
+            SetStdHandle(STD_OUTPUT_HANDLE,
+                         reinterpret_cast<HANDLE>(_get_osfhandle(outputDescriptor)));
+        }
+    }
+    if (errorDescriptor >= 0) {
+        SetStdHandle(STD_ERROR_HANDLE, reinterpret_cast<HANDLE>(_get_osfhandle(errorDescriptor)));
+    }
+    std::fprintf(stderr, "RUNTIME_SESSION_LOG path=%ls\n", path);
+    std::fflush(stderr);
 }
 
 using VirtualAlloc2Fn = PVOID(WINAPI*)(HANDLE, PVOID, SIZE_T, ULONG, ULONG,
@@ -364,6 +410,7 @@ int main(int argc, char** argv) {
     // handles (including injected overlays and compatibility layers) as title
     // crashes, and performs file I/O on their normal control-flow path.
     PrepareCrashEvidence();
+    OpenSessionLogIfRequested();
     SetUnhandledExceptionFilter(CrashEvidence);
     {
         // Developer check of the crash path (report line, log and minidump):

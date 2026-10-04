@@ -193,6 +193,13 @@ Please open an issue with the **Bug report** template. It asks for:
   **Logs**): `runtime_crash.log` and any `TheDarkness_fatal_*.dmp` and
   `TheDarkness_stall_*.dmp` files.
 
+For a visual glitch, press **F9** while it is on screen: the game saves a
+screenshot and a small text file describing that frame in
+`Saved Games\Estacado\screenshots`; attach both. For input or other
+problems without a crash, create an empty file named `session_log.txt` next
+to `TheDarkness.exe`, play until the problem happens, and attach the
+`logs\session_*.log` it writes.
+
 Never attach game files (disc images, extracted files) to an issue.
 
 ## Building from source

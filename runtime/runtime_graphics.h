@@ -121,6 +121,9 @@ bool RuntimeGraphicsSettingsConfigure(const std::string& schema, const std::stri
 bool RuntimeGraphicsSettingsPoll(std::string& changes);
 void RuntimeGraphicsSettingsSaved(const std::string& saved, const std::string& status) noexcept;
 bool RuntimeGraphicsSettingsOverlayOpen() noexcept;
+// Developer test input: the script's virtual controller buttons (`pad`, XInput
+// wButtons), 0 without a driving script. Joins the native controller path.
+uint16_t RuntimeGraphicsTestPadButtons() noexcept;
 // V380: the player closed the game window; the title stops cleanly.
 bool RuntimeGraphicsCloseRequested() noexcept;
 

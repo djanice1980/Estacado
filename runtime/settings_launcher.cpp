@@ -12,6 +12,7 @@
 #include <Windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <dxgi1_6.h>
 #include <shellapi.h>
 #include <objbase.h>
 #include <shobjidl.h>
@@ -863,6 +864,28 @@ void DetectDisplays(Launcher& app) {
 
 // HD texture packs (V374): offered only when one is installed, with its size
 // and video memory next to this graphics card's.
+// NVIDIA DLSS needs an NVIDIA RTX card: the high-performance adapter is an
+// NVIDIA one (vendor 0x10DE) with RTX in its name (as the in-game overlay
+// checks). True when DXGI can't tell.
+bool HasNvidiaRtxCard() {
+    IDXGIFactory6* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory6), reinterpret_cast<void**>(&factory)))) {
+        return true;
+    }
+    bool rtx = false;
+    IDXGIAdapter1* adapter = nullptr;
+    if (SUCCEEDED(factory->EnumAdapterByGpuPreference(0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                                                      __uuidof(IDXGIAdapter1),
+                                                      reinterpret_cast<void**>(&adapter)))) {
+        DXGI_ADAPTER_DESC1 desc{};
+        rtx = SUCCEEDED(adapter->GetDesc1(&desc)) && desc.VendorId == 0x10DE &&
+              !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) && wcsstr(desc.Description, L"RTX");
+        adapter->Release();
+    }
+    factory->Release();
+    return rtx;
+}
+
 void DetectTexturePacks(Launcher& app) {
     const ui::TexturePackFolder pack =
         ui::ScanTexturePackFolder(app.directory / L"texture_packs");
@@ -1843,6 +1866,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand) {
     CheckGame(app);
     app.packageVersion = ReadPackageVersion(app.directory);
     app.upscalers = ui::ScanUpscalerRuntimes(app.directory);
+    if (app.upscalers.dlss) app.upscalers.dlss_card = HasNvidiaRtxCard();
     if (app.onSteamDeck && !app.configExists && app.presetCombo >= 0) {
         // On a Deck the first save installs the Steam Deck preset.
         LoadPreset(app, app.presetCombo);

@@ -82,6 +82,51 @@ int main() {
               "the routed player publishes one packet sequence");
         check(source.find("std::strcmp(mode, \"console\") == 0") != std::string::npos,
               "DARKNESS_INPUT_ROUTING=console keeps the 1:1 mapping");
+        // #16: capabilities are asked before the first state poll; they must
+        // not depend on the router having picked a pad already.
+        const size_t caps = source.find("uint32_t QueryGuestInputCapabilities(");
+        const size_t state = source.find("uint32_t QueryGuestInputState(");
+        const size_t routedCaps = source.find("RuntimeRoutedCapabilitiesSlot(", caps);
+        check(caps != std::string::npos && routedCaps != std::string::npos && routedCaps < state,
+              "routed capabilities find a connected pad before any state poll (#16)");
+    }
+    {
+        // #16: a controller with keyboard/mouse OFF. The game asks for the
+        // capabilities first; 0.9.1 answered "not connected" until a state
+        // poll had picked a pad, and the game never polled.
+        const auto connectedSet = [](std::initializer_list<uint32_t> slots) {
+            return [slots](uint32_t slot) {
+                for (uint32_t connected : slots) {
+                    if (connected == slot) return true;
+                }
+                return false;
+            };
+        };
+        check(RuntimeRoutedCapabilitiesSlot(Router::kNone, connectedSet({2})) == 2,
+              "no active pad yet: the connected pad on slot 2 is reported");
+        check(RuntimeRoutedCapabilitiesSlot(Router::kNone, connectedSet({0})) == 0,
+              "no active pad yet: the pad on slot 0 is reported");
+        check(RuntimeRoutedCapabilitiesSlot(1, connectedSet({0, 1})) == 1,
+              "the active pad wins over a lower connected slot");
+        check(RuntimeRoutedCapabilitiesSlot(1, connectedSet({3})) == 3,
+              "the active pad unplugged: the lowest connected slot");
+        check(RuntimeRoutedCapabilitiesSlot(Router::kNone, connectedSet({})) == Router::kNone,
+              "no controller at all: none (keyboard/mouse decides the answer)");
+    }
+    {
+        // #16: Enter confirms like A unless a binding uses it; prompts ignore
+        // mouse jitter and small stick-mode deflections.
+        std::ifstream file(std::string(DARKNESS_SOURCE_ROOT) +
+                           "/external/ReXGlue/src/input/mnk/mnk_input_driver.cpp");
+        const std::string source((std::istreambuf_iterator<char>(file)), {});
+        check(source.find("keys[static_cast<uint16_t>(rex::ui::VirtualKey::kReturn)] && !ReturnKeyBound()") !=
+                  std::string::npos,
+              "Enter is an extra A while no binding uses it (#16)");
+        std::ifstream look(std::string(DARKNESS_SOURCE_ROOT) + "/runtime/runtime_mouse_look.cpp");
+        const std::string lookSource((std::istreambuf_iterator<char>(look)), {});
+        check(lookSource.find("activityGate.Observe(mouse.dx, mouse.dy, GetTickCount64())") !=
+                  std::string::npos,
+              "mouse look reaches the prompts only through the activity gate (#16)");
     }
     if (!passed) return 1;
     std::cout << "runtime input slot routing: PASS\n";

@@ -1190,6 +1190,42 @@ int main() {
                         std::string(kTitleNativeGridRules).find(
                             "B29F0BF45937C4C4:69779AD07425E356:0:324:18:26") != std::string::npos,
                     "the rules before the pause grading table (#10) must be upgraded");
+    // #16: the published 0.9.1 rules lacked the motion-blur composite.
+    const std::string published091 = std::string("pc_config_version = 1\nresolution_scale = 2\n") +
+                                      "draw_resolution_scale_threshold = 640\n" +
+                                      "draw_resolution_scale_native_grid_rules = \"" +
+                                      std::string(k091TitleNativeGridRules) + "\"\n" +
+                                      "native_resolve_region_tracking = true\n";
+    const toml::table published_table = toml::parse(
+        RuntimePcConfigWithTitleScaleRequirements(published091, "published091", &changed));
+    passed &= Check(changed &&
+                        published_table["draw_resolution_scale_native_grid_rules"].value_or(
+                            std::string{}) == kTitleNativeGridRules,
+                    "the published 0.9.1 rules must be upgraded (#16)");
+    passed &= Check(std::string(kTitleNativeGridRules)
+                            .find("4FA9486610B42A92:A59B41D0BD79484B:1:1280:720:26:filter_scaled:source=native") !=
+                        std::string::npos &&
+                        std::string(kTitleNativeGridRules)
+                                .find("4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native") !=
+                            std::string::npos,
+                    "both final composites (motion blur on and off) enlarge the native glow (#16)");
+    passed &= Check(std::string(kTitleNativeGridRules).rfind(std::string(k091TitleNativeGridRules), 0) == 0,
+                    "the 0.9.2 rules extend the 0.9.1 rules");
+    {
+        // Every packaged preset and the example configuration carry exactly
+        // the current rules wherever they set native-grid rules.
+        for (const char* name : {"config/pc_presets/enhanced.toml", "config/pc_presets/original.toml",
+                                 "config/pc_presets/performance.toml",
+                                 "config/pc_presets/validation_1440p_internal_2x.toml",
+                                 "config/pc_presets/validation_4k_windowed_internal_2x.toml",
+                                 "config/pc_settings_v1.toml"}) {
+            std::ifstream file(std::string(DARKNESS_SOURCE_ROOT) + "/" + name);
+            const std::string text((std::istreambuf_iterator<char>(file)), {});
+            const bool hasRules = text.find("draw_resolution_scale_native_grid_rules") != std::string::npos;
+            passed &= Check(!hasRules || text.find(std::string(kTitleNativeGridRules)) != std::string::npos,
+                            (std::string(name) + " carries the current native-grid rules (#16)").c_str());
+        }
+    }
     const std::string base_config = "pc_config_version = 1\n[input]\n";
     const std::string with_program_cache = RuntimePcConfigWithProgramCacheSource(
         base_config,

@@ -56,3 +56,18 @@ private:
     uint32_t active_ = kNone;
     bool pressedThisPoll_ = false;
 };
+
+// The pad whose capabilities guest user 0 reports (0.9.2, issue #16). The game
+// asks XInputGetCapabilities before it ever polls the state, and the router's
+// active slot is only chosen by state polls: in 0.9.1 a controller therefore
+// stayed "not connected" (and was never polled) unless keyboard/mouse was on.
+// The active pad when it is connected, else the lowest connected slot (the
+// pad the first state poll picks), else none. `connected(slot)` asks the host.
+template <typename Connected>
+uint32_t RuntimeRoutedCapabilitiesSlot(uint32_t active, Connected&& connected) {
+    if (active < RuntimeInputSlotRouter::kSlots && connected(active)) return active;
+    for (uint32_t slot = 0; slot < RuntimeInputSlotRouter::kSlots; ++slot) {
+        if (slot != active && connected(slot)) return slot;
+    }
+    return RuntimeInputSlotRouter::kNone;
+}

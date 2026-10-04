@@ -361,6 +361,13 @@ target_compile_definitions(runtime_input_slot_routing_test PRIVATE
     DARKNESS_SOURCE_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
 add_test(NAME runtime_input_slot_routing COMMAND runtime_input_slot_routing_test)
 
+add_executable(runtime_overlay_chord_test runtime_overlay_chord_test.cpp)
+target_include_directories(runtime_overlay_chord_test PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../../runtime")
+target_compile_definitions(runtime_overlay_chord_test PRIVATE
+    DARKNESS_SOURCE_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
+add_test(NAME runtime_overlay_chord COMMAND runtime_overlay_chord_test)
+
 add_executable(runtime_button_prompts_test runtime_button_prompts_test.cpp
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime/runtime_button_prompts.cpp")
 target_include_directories(runtime_button_prompts_test PRIVATE
@@ -787,6 +794,8 @@ add_executable(runtime_pc_settings_test runtime_pc_settings_test.cpp
 target_include_directories(runtime_pc_settings_test PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../../runtime")
 target_compile_options(runtime_pc_settings_test PRIVATE /EHsc)
+target_compile_definitions(runtime_pc_settings_test PRIVATE
+    DARKNESS_SOURCE_ROOT="${CMAKE_CURRENT_LIST_DIR}/../..")
 target_link_libraries(runtime_pc_settings_test PRIVATE bcrypt tomlplusplus::tomlplusplus)
 add_test(NAME runtime_pc_settings COMMAND runtime_pc_settings_test)
 # 0.9.1 saves and settings per user: layouts, the verified one-time copy from

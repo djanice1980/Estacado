@@ -56,9 +56,39 @@ inline bool RuntimeKeyboardMouseActivity(uint16_t buttons, uint8_t leftTrigger,
                                          uint8_t rightTrigger, int16_t thumbLX,
                                          int16_t thumbLY, int16_t thumbRX,
                                          int16_t thumbRY) noexcept {
-    return buttons != 0 || leftTrigger != 0 || rightTrigger != 0 || thumbLX != 0 ||
-           thumbLY != 0 || thumbRX != 0 || thumbRY != 0;
+    // Keys give full deflections; small right-stick values are mouse jitter in
+    // stick mouse-look mode and never count (#16: the prompts flipped to keys
+    // while a controller was in use).
+    constexpr int kStick = 8000;
+    auto beyond = [](int16_t value) { return std::abs(int(value)) > kStick; };
+    return buttons != 0 || leftTrigger != 0 || rightTrigger != 0 || beyond(thumbLX) ||
+           beyond(thumbLY) || beyond(thumbRX) || beyond(thumbRY);
 }
+
+// Native mouse look counts as keyboard/mouse activity only for a deliberate
+// movement: at least kMinimumCounts within kWindowMs (sensor noise and a
+// bumped desk never switch the prompts away from the controller, #16).
+class RuntimeMouseActivityGate {
+public:
+    static constexpr uint32_t kMinimumCounts = 40;
+    static constexpr uint64_t kWindowMs = 300;
+
+    bool Observe(int32_t dx, int32_t dy, uint64_t nowMs) noexcept {
+        if (nowMs - windowStartMs_ > kWindowMs) {
+            windowStartMs_ = nowMs;
+            counts_ = 0;
+        }
+        counts_ += uint32_t(std::abs(dx)) + uint32_t(std::abs(dy));
+        if (counts_ < kMinimumCounts) return false;
+        counts_ = 0;
+        windowStartMs_ = nowMs;
+        return true;
+    }
+
+private:
+    uint64_t windowStartMs_ = 0;
+    uint32_t counts_ = 0;
+};
 
 // Reports the device to the GPU plugin when it changes.
 void RuntimeNoteInputActivity(bool controllerActivity, bool keyboardMouseActivity) noexcept;

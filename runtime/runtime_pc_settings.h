@@ -191,6 +191,12 @@ std::map<std::string, std::string> RuntimePcConfigSettingValues(
 // it at native texel centres, which at even scales fall between two scaled
 // texels and mixed neighbouring table entries into dark colours (the
 // greenish haze, strongest at 2x, half at 4x, none at odd scales).
+// The final composite has two pixel shaders: A59B41D0BD79484B with the game's
+// motion blur and 22FC55CE134777AC with the built-in motion-blur-off patch;
+// both read the glow through tf1 (0.9.2, issue #16: 0.9.1 enlarged it only in
+// the motion-blur-off composite, so with motion blur on the native glow was
+// stretched with plain bilinear - banded light flashes, a shimmering block
+// grid over every glow at any internal scale above 1x).
 inline constexpr int64_t kTitleScaleThreshold = 640;
 inline constexpr std::string_view kTitleNativeGridRules =
     "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
@@ -203,11 +209,26 @@ inline constexpr std::string_view kTitleNativeGridRules =
     "B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:90:6:filter;"
     "B29F0BF45937C4C4:8F96D5C280D780BC:0:1280:720:26:filter;"
     "EC4685ADB9CCBC13:207D40E674A7C916:0:1280:720:26:filter_scaled:source=native;"
-    "4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native";
+    "4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native;"
+    "4FA9486610B42A92:A59B41D0BD79484B:1:1280:720:26:filter_scaled:source=native";
 // The earlier built-in annotations: configurations that carry exactly one of
 // these are upgraded to kTitleNativeGridRules. kLegacyTitleNativeGridRules =
 // the lookup tables only (0.9.0 presets); kPreviousTitleNativeGridRules = with
-// the bloom chain, before the pause table (0.9.1 development presets).
+// the bloom chain, before the pause table (0.9.1 development presets);
+// k091TitleNativeGridRules = the published 0.9.1 (without the motion-blur
+// composite).
+inline constexpr std::string_view k091TitleNativeGridRules =
+    "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
+    "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
+    "B29F0BF45937C4C4:54D655FC471D594A:0:324:18:26;"
+    "B29F0BF45937C4C4:69779AD07425E356:0:324:18:26;"
+    "B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:6:filter;"
+    "B29F0BF45937C4C4:FAE3BACA27F09CC9:0:1280:720:26:filter;"
+    "B29F0BF45937C4C4:9F1D2D64E5F75924:0:1280:720:26:filter;"
+    "B29F0BF45937C4C4:9F1D2D64E5F75924:0:160:90:6:filter;"
+    "B29F0BF45937C4C4:8F96D5C280D780BC:0:1280:720:26:filter;"
+    "EC4685ADB9CCBC13:207D40E674A7C916:0:1280:720:26:filter_scaled:source=native;"
+    "4FA9486610B42A92:22FC55CE134777AC:1:1280:720:26:filter_scaled:source=native";
 inline constexpr std::string_view kLegacyTitleNativeGridRules =
     "B29F0BF45937C4C4:FDC5E32EC6045BE1:1:324:18:6;"
     "B29F0BF45937C4C4:37AC93F53126ABB7:0:324:18:26;"
