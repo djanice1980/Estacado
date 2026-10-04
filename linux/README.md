@@ -71,9 +71,10 @@ linux/build-installer.sh
 
 This writes `build/installer/TheDarkness-Estacado-<version>-Setup.exe`, an
 Inno Setup installer. It installs to Program Files and includes the Visual
-C++ runtime. It doesn't include any game files. After installing, settings
-and logs go to `%LOCALAPPDATA%\The Darkness` and saves to `Saved Games\The
-Darkness`.
+C++ runtime. It doesn't include any game files. An installed copy keeps
+saves, settings and logs in `Saved Games\Estacado` (the game's own
+per-user layout; a `portable.txt` beside the executable would keep them in
+the program folder instead).
 
 ## CachyOS / Arch package
 

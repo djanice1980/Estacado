@@ -52,7 +52,7 @@ if [ ! -f "$rex/out/build/win-amd64/build.ninja" ]; then
     -DCMAKE_CXX_STANDARD=23 "-DCMAKE_CONFIGURATION_TYPES=Debug;Release;RelWithDebInfo" \
     -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_ENABLE_PERF_COUNTERS=OFF \
     -DREXGLUE_GPU_THINLTO=ON -DREXGLUE_GPU_PGO="${PGO:-USE}" \
-    -DREXGLUE_GPU_PGO_PROFILE="$repo/config/pgo/rexgpu-v404.profdata" \
+    -DREXGLUE_GPU_PGO_PROFILE="$(ls "$repo"/config/pgo/rexgpu-v*.profdata | sort -V | tail -1)" \
     -DREXGLUE_GPU_DIAGNOSTICS=OFF -DREXGLUE_USE_VULKAN=OFF -DREXGLUE_USE_D3D12=ON \
     -DREXGLUE_BUILD_TESTS=OFF -DREXGLUE_ENABLE_FIDELITYFX=OFF -DREXGLUE_ENABLE_SANITIZERS=OFF \
     -DREXGLUE_OUTPUT_DIR="$repo/$rex/out/win-amd64" > logs/rexglue-configure.log

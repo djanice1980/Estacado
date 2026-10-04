@@ -9,7 +9,9 @@ out="$repo/build/installer"
 iscc="$tc/installer/inno-prefix/drive_c/InnoSetup/ISCC.exe"
 [ -f "$pkg/TheDarkness.exe" ] || { echo "No package: run linux/build.sh first."; exit 1; }
 [ -f "$iscc" ] || { echo "No Inno Setup: run linux/setup-toolchain.sh --accept-msvc-license --installer"; exit 1; }
-version="0.9.0+$(git -C "$repo" rev-parse --short HEAD).$(date +%Y%m%d)"
+# The release version from the changelog's first heading, plus this commit.
+release="$(grep -m1 -oE '^## [0-9]+\.[0-9]+\.[0-9]+' "$repo/CHANGELOG.md" | cut -c4-)"
+version="${release:-0.0.0}+$(git -C "$repo" rev-parse --short HEAD).$(date +%Y%m%d)"
 mkdir -p "$out"
 winpath() { echo "Z:$(realpath "$1" | tr / '\\')"; }
 export WINEPREFIX="$tc/installer/inno-prefix" WINEDEBUG=-all

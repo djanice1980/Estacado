@@ -12,9 +12,10 @@ AppName=The Darkness (Estacado)
 AppVersion={#AppVersion}
 AppPublisher=Estacado (unofficial fan port)
 AppComments=Unofficial PC port of The Darkness (Xbox 360). Game files not included.
-; Program Files, read-only for the game: it keeps settings and logs in
-; %LOCALAPPDATA%\The Darkness and saves in Saved Games\The Darkness
-; (runtime/runtime_user_paths.h).
+; Program Files, read-only for the game: without a portable.txt beside the
+; executable it keeps settings, saves and screenshots in
+; Saved Games\Estacado (runtime/runtime_user_data.h). Its logs\ folder is
+; relative to the working directory, so the shortcuts start it there.
 PrivilegesRequired=admin
 DefaultDirName={autopf}\The Darkness (Estacado)
 DefaultGroupName=The Darkness (Estacado)
@@ -37,20 +38,18 @@ Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "
 ; The package as built. Machine-specific and writable files (the game location
 ; file, settings, saves, logs, shader caches) and the game itself are left out.
 Source: "{#PackageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; \
-  Excludes: "\game,\game\*,\logs,\logs\*,\runtime_data,\runtime_data\*,\vkd3d-proton.cache*,\TheDarkness.pc.toml,\TheDarkness.mods.toml,\TheDarkness.game.toml,\portable.txt,\launcher_debug.txt"
+  Excludes: "\game,\game\*,\logs,\logs\*,\runtime_data,\runtime_data\*,\vkd3d-proton.cache*,\TheDarkness.pc.toml,\TheDarkness.mods.toml,\TheDarkness.game.toml,\portable.txt,\launcher_debug.txt,\SAVES_MOVED.txt"
 Source: "{#RedistDir}\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: VCRedistNeeded
 
 [Icons]
-Name: "{group}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{app}"
-Name: "{group}\Saved games"; Filename: "{%USERPROFILE}\Saved Games\The Darkness"
-Name: "{group}\Settings and logs"; Filename: "{localappdata}\The Darkness"
+Name: "{group}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{%USERPROFILE}\Saved Games\Estacado"
+Name: "{group}\Saves, settings and logs"; Filename: "{%USERPROFILE}\Saved Games\Estacado"
 Name: "{group}\Uninstall The Darkness (Estacado)"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userdesktop}\The Darkness"; Filename: "{app}\TheDarknessSettings.exe"; WorkingDir: "{%USERPROFILE}\Saved Games\Estacado"; Tasks: desktopicon
 
 [Dirs]
 ; Created for the shortcuts; the game creates them too. Never removed.
-Name: "{%USERPROFILE}\Saved Games\The Darkness"; Flags: uninsneveruninstall
-Name: "{localappdata}\The Darkness"; Flags: uninsneveruninstall
+Name: "{%USERPROFILE}\Saved Games\Estacado"; Flags: uninsneveruninstall
 
 [Run]
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /passive /norestart"; \
@@ -95,6 +94,5 @@ begin
     WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 +
       'Game files are not included. In the launcher, use "Choose game folder..." ' +
       '(the folder with default.xex) or "Choose disc image..." (your .iso).' + #13#10#13#10 +
-      'Saves: ' + ExpandConstant('{%USERPROFILE}') + '\Saved Games\The Darkness' + #13#10 +
-      'Settings and logs: ' + ExpandConstant('{localappdata}') + '\The Darkness';
+      'Saves, settings and logs: ' + ExpandConstant('{%USERPROFILE}') + '\Saved Games\Estacado';
 end;

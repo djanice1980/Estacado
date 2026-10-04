@@ -10,8 +10,10 @@ out="$repo/build/arch"
 [ -f "$pkg/TheDarkness.exe" ] || { echo "No package: run linux/build.sh first."; exit 1; }
 command -v makepkg > /dev/null || { echo "makepkg not found (pacman's makepkg)."; exit 1; }
 
-# Version: upstream 0.9.0, the build date and this commit (pkgver has no '-').
-pkgver="0.9.0.$(date +%Y%m%d).g$(git -C "$repo" rev-parse --short HEAD)"
+# Version: the changelog's release, the build date and this commit (pkgver
+# has no '-').
+release="$(grep -m1 -oE '^## [0-9]+\.[0-9]+\.[0-9]+' "$repo/CHANGELOG.md" | cut -c4-)"
+pkgver="${release:-0.0.0}.$(date +%Y%m%d).g$(git -C "$repo" rev-parse --short HEAD)"
 rm -rf "$out"
 mkdir -p "$out/stage/estacado"
 
