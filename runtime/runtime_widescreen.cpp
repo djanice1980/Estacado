@@ -1,5 +1,6 @@
 // Widescreen (V406, experimental): see runtime_widescreen.h.
 #include "runtime_widescreen.h"
+#include "runtime_pc_settings.h"
 
 #include "runtime_memory_access.h"
 #include "runtime_video_mode.h"
@@ -62,6 +63,23 @@ std::string RuntimePcConfigWithGuestDisplaySize(const std::string& contents,
                          threshold);
             std::fflush(stderr);
         }
+    }
+    // The built-in bloom rules name the 16:9 buffers; a taller mode's buffers
+    // follow the video mode (RuntimeWidescreenNativeGridRules; wider modes
+    // are left alone there). Only the title's own rule string is rewritten;
+    // custom rules are the player's.
+    static const std::regex kRules(
+        R"((^|\n)draw_resolution_scale_native_grid_rules = (["'])([^"'\n]*)\2[ \t]*(\r?\n))");
+    if (std::regex_search(adjusted, match, kRules) && match[3].str() == kTitleNativeGridRules &&
+        RuntimeWidescreenNativeGridRules(match[3].str(), size.width, size.height) != match[3].str()) {
+        const std::string rules =
+            RuntimeWidescreenNativeGridRules(match[3].str(), size.width, size.height);
+        adjusted.replace(size_t(match.position(0)), size_t(match.length(0)),
+                         match[1].str() + "draw_resolution_scale_native_grid_rules = " +
+                             match[2].str() + rules + match[2].str() + match[4].str());
+        std::fprintf(stderr, "RUNTIME_WIDESCREEN native_grid_rules 1280x720 -> %ux%u, 160x90 -> %ux%u\n",
+                     size.width, size.height, size.width / 8, size.height / 8);
+        std::fflush(stderr);
     }
     // Top-level keys must precede the first table.
     const std::string keys = "video_mode_width = " + std::to_string(size.width) +

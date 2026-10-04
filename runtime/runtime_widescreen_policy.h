@@ -4,6 +4,7 @@
 // by tests/register_helpers/runtime_widescreen_policy_test.cpp.
 
 #include <cstdint>
+#include <string>
 
 struct RuntimeGuestDisplaySize {
     uint32_t width = 1280;
@@ -43,4 +44,27 @@ inline uint32_t RuntimeWidescreenScaleThreshold(uint32_t guestWidth, uint32_t co
     constexpr uint32_t kTile = 80;
     if (configured != kTitleThreshold || guestWidth <= 1280) return configured;
     return (guestWidth / 2 + kTile - 1) / kTile * kTile;
+}
+
+// The title's native-grid rules for a taller guest mode (16:10, 4:3). The
+// bloom rules name the 16:9 buffers (the 1280 x 720 scene copies and the
+// 160 x 90 glow); the title sizes those from the video mode (a 1280 x 800
+// mode has 1280 x 800 and 160 x 100 buffers, measured), so the rules follow
+// or none of them match. Guest heights are multiples of 16, so the glow (an
+// eighth) stays whole. The lookup tables (324 x 18) are mode-independent.
+// Wider modes keep the 16:9 rules: there the title column-tiles its 4-sample
+// bloom passes, and rendering those tiles on the native grid produced a
+// corrupt bloom atlas (1680 x 720 measured: out-of-range values at the glow
+// edge), worse than the unmatched rules' combing. Not understood yet.
+inline std::string RuntimeWidescreenNativeGridRules(std::string rules, uint32_t guestWidth,
+                                                    uint32_t guestHeight) {
+    if (guestWidth != 1280 || guestHeight == 720) return rules;
+    const auto replace = [&rules](const std::string& from, const std::string& to) {
+        for (size_t at = rules.find(from); at != std::string::npos; at = rules.find(from, at + to.size())) {
+            rules.replace(at, from.size(), to);
+        }
+    };
+    replace(":1280:720:", ":" + std::to_string(guestWidth) + ":" + std::to_string(guestHeight) + ":");
+    replace(":160:90:", ":" + std::to_string(guestWidth / 8) + ":" + std::to_string(guestHeight / 8) + ":");
+    return rules;
 }
