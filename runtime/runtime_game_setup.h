@@ -39,10 +39,18 @@ bool WriteGameLocation(const std::filesystem::path& executableDirectory,
 // default.xex of the configured game: the location file's folder, else the
 // "game" folder next to the executables; empty when neither has one.
 std::filesystem::path ConfiguredGameXex(const std::filesystem::path& executableDirectory);
+// The same with the installed copy's local data folder (runtime_user_data.h:
+// where the launcher writes the location file and extracts a disc image when
+// the program folder may be read-only): that folder first, then the
+// executables' folder, so a copy configured before the move still starts.
+std::filesystem::path ConfiguredGameXex(const std::filesystem::path& dataFolder,
+                                        const std::filesystem::path& executableDirectory);
 // The default.xex the game starts with: ConfiguredGameXex, else
 // <executable directory or a folder above>/<kDiscDumpFolderName>/default.xex;
 // empty when there is none.
 std::filesystem::path FindGameXex(const std::filesystem::path& executableDirectory);
+std::filesystem::path FindGameXex(const std::filesystem::path& dataFolder,
+                                  const std::filesystem::path& executableDirectory);
 
 // Versions of default.xex (0.9.1). The recompiled code is the supported
 // executable's; another copy runs when it has the same code. Its decrypted,

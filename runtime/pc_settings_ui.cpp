@@ -32,14 +32,20 @@ bool PcExperimentalFeature(std::string_view name) {
 }
 
 PcSettingsOffer PcSettingsOfferFor(const std::filesystem::path& gameFolder, bool downloadable) {
+    return PcSettingsOfferFor(gameFolder, gameFolder, downloadable);
+}
+
+PcSettingsOffer PcSettingsOfferFor(const std::filesystem::path& dataFolder,
+                                   const std::filesystem::path& programFolder,
+                                   bool downloadable) {
     PcSettingsOffer offer;
     offer.temporalAa = PcExperimentalFeature("temporal_aa");
-    const std::filesystem::path packs = gameFolder / L"language_packs";
     const rex::ui::settings::LanguagePackFolder installed =
-        rex::ui::settings::ScanLanguagePackFolder(packs / L"arabic");
+        rex::ui::settings::ScanLanguagePackFolder(dataFolder / L"language_packs" / L"arabic");
     std::error_code error;
     offer.arabic = (installed.strings && installed.fonts) || downloadable ||
-                   std::filesystem::is_regular_file(packs / L"arabic_language_pack.zip", error) ||
+                   std::filesystem::is_regular_file(
+                       programFolder / L"language_packs" / L"arabic_language_pack.zip", error) ||
                    PcExperimentalFeature("arabic");
     return offer;
 }

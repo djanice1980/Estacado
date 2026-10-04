@@ -605,6 +605,8 @@ bool WriteGameLocation(const std::filesystem::path& executableDirectory,
         escaped.push_back(char(c));
     }
     const std::filesystem::path file = executableDirectory / kLocationFileName;
+    std::error_code ignore;
+    std::filesystem::create_directories(executableDirectory, ignore);
     std::ofstream stream(file, std::ios::binary | std::ios::trunc);
     stream << "# Where the game files are (written by the settings launcher's game setup).\n"
            << "game_folder = \"" << escaped << "\"\n";
@@ -617,19 +619,34 @@ bool WriteGameLocation(const std::filesystem::path& executableDirectory,
 }
 
 std::filesystem::path ConfiguredGameXex(const std::filesystem::path& executableDirectory) {
+    return ConfiguredGameXex(executableDirectory, executableDirectory);
+}
+
+std::filesystem::path ConfiguredGameXex(const std::filesystem::path& dataFolder,
+                                        const std::filesystem::path& executableDirectory) {
     std::error_code error;
-    if (const auto folder = ReadGameLocation(executableDirectory)) {
-        const std::filesystem::path xex = *folder / L"default.xex";
-        if (std::filesystem::is_regular_file(xex, error)) return xex;
+    for (const std::filesystem::path& folder : {dataFolder, executableDirectory}) {
+        if (folder.empty()) continue;
+        if (const auto located = ReadGameLocation(folder)) {
+            const std::filesystem::path xex = *located / L"default.xex";
+            if (std::filesystem::is_regular_file(xex, error)) return xex;
+        }
     }
-    const std::filesystem::path extracted =
-        executableDirectory / kExtractedFolderName / L"default.xex";
-    if (std::filesystem::is_regular_file(extracted, error)) return extracted;
+    for (const std::filesystem::path& folder : {dataFolder, executableDirectory}) {
+        if (folder.empty()) continue;
+        const std::filesystem::path extracted = folder / kExtractedFolderName / L"default.xex";
+        if (std::filesystem::is_regular_file(extracted, error)) return extracted;
+    }
     return {};
 }
 
 std::filesystem::path FindGameXex(const std::filesystem::path& executableDirectory) {
-    if (std::filesystem::path configured = ConfiguredGameXex(executableDirectory);
+    return FindGameXex(executableDirectory, executableDirectory);
+}
+
+std::filesystem::path FindGameXex(const std::filesystem::path& dataFolder,
+                                  const std::filesystem::path& executableDirectory) {
+    if (std::filesystem::path configured = ConfiguredGameXex(dataFolder, executableDirectory);
         !configured.empty()) {
         return configured;
     }

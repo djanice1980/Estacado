@@ -77,11 +77,14 @@ std::filesystem::path AbsoluteNormalized(const std::filesystem::path& path) {
 }
 
 std::filesystem::path ResolveDefaultXexPath(
-    const std::filesystem::path& executableDirectory) {
+    const std::filesystem::path& executableDirectory,
+    const std::filesystem::path& dataFolder) {
     // The player's game from the launcher's setup (location file or the
-    // extracted "game" folder), then the disc-dump folder name upwards.
-    if (const std::filesystem::path configured =
-            darkness::game_setup::ConfiguredGameXex(AbsoluteNormalized(executableDirectory));
+    // extracted "game" folder, in the local data folder or beside the
+    // executables), then the disc-dump folder name upwards.
+    if (const std::filesystem::path configured = darkness::game_setup::ConfiguredGameXex(
+            AbsoluteNormalized(dataFolder.empty() ? executableDirectory : dataFolder),
+            AbsoluteNormalized(executableDirectory));
         !configured.empty()) {
         return configured.lexically_normal();
     }
@@ -400,7 +403,7 @@ RuntimeLaunchOptions ParseRuntimeLaunchOptions(
     const std::filesystem::path& executableDirectory,
     const RuntimeUserDataLayout& userData) {
     RuntimeLaunchOptions options{};
-    options.xexPath = ResolveDefaultXexPath(executableDirectory);
+    options.xexPath = ResolveDefaultXexPath(executableDirectory, userData.localData);
     options.pcConfigPath = userData.configPath;
     options.pcConfigInstallPath = userData.configPath;
     options.modsConfigPath = executableDirectory / kDefaultModsConfigName;
